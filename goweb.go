@@ -28,7 +28,7 @@ func main() {
 
 	for _, server := range *servers {
 		mux := http.NewServeMux()
-		hostNamePathMap := make(map[string]*Host, len(*server.Hosts))
+		server.hostMap = make(map[string]*Host, len(*server.Hosts))
 		if server.Type == "https" {
 			cfg := &tls.Config{}
 
@@ -38,14 +38,14 @@ func main() {
 					log.Fatal(err)
 				}
 				cfg.Certificates = append(cfg.Certificates, keyPair)
-				hostNamePathMap[host.Name] = &(*server.Hosts)[i]
+				server.hostMap[host.Name] = &(*server.Hosts)[i]
 			}
 
 			cfg.BuildNameToCertificate()
 
 			handler := func(w http.ResponseWriter, r *http.Request) {
 				requestedHost := strings.Split(r.Host, ":")[0]
-				host := hostNamePathMap[requestedHost]
+				host := server.hostMap[requestedHost]
 				http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
 			}
 
@@ -62,11 +62,11 @@ func main() {
 			}()
 		} else if server.Type == "http" {
 			for i, host := range *server.Hosts {
-				hostNamePathMap[host.Name] = &(*server.Hosts)[i]
+				server.hostMap[host.Name] = &(*server.Hosts)[i]
 			}
 			handler := func(w http.ResponseWriter, r *http.Request) {
 				requestedHost := strings.Split(r.Host, ":")[0]
-				host := hostNamePathMap[requestedHost]
+				host := server.hostMap[requestedHost]
 				if host.HttpRedirectPort > 0 {
 					redirectUrl := fmt.Sprintf("https://%v:%v", host.Name, host.HttpRedirectPort)
 					http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
