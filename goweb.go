@@ -2,45 +2,109 @@ package main
 
 import (
 	"crypto/tls"
+	"flag"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 func main() {
-	cfg := &tls.Config{}
 
-	cert0, err := tls.LoadX509KeyPair(
-		"/Users/qianchen/Desktop/certs/example.com/example.com.pem",
-		"/Users/qianchen/Desktop/certs/example.com/example.com-key.pem",
-	)
+	confPath := flag.String("c", "goweb.json", "configration file path")
+	flag.Parse()
+	confBytes, err := ioutil.ReadFile(*confPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
-
-	cert1, err := tls.LoadX509KeyPair(
-		"/Users/qianchen/Desktop/certs/test.example.com/test.example.com.pem",
-		"/Users/qianchen/Desktop/certs/test.example.com/test.example.com-key.pem",
-	)
+	servers, err := NewConfig(confBytes)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 
-	cfg.Certificates = append(cfg.Certificates, cert0)
-	cfg.Certificates = append(cfg.Certificates, cert1)
+	for _, server := range *servers {
+		mux := http.NewServeMux()
+		hostNamePathMap := make(map[string]*Host, len(*server.Hosts))
+		if server.Type == "https" {
+			cfg := &tls.Config{}
 
-	cfg.BuildNameToCertificate()
+			for i, host := range *server.Hosts {
+				keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
+				if err != nil {
+					log.Fatal(err)
+				}
+				cfg.Certificates = append(cfg.Certificates, keyPair)
+				hostNamePathMap[host.Name] = &(*server.Hosts)[i]
+			}
 
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		http.FileServer(http.Dir(strings.Split(r.Host, ":")[0])).ServeHTTP(w, r)
+			cfg.BuildNameToCertificate()
+
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				requestedHost := strings.Split(r.Host, ":")[0]
+				host := hostNamePathMap[requestedHost]
+				http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+			}
+
+			mux.HandleFunc("/", handler)
+
+			srv := http.Server{
+				Addr:      server.Listen,
+				Handler:   mux,
+				TLSConfig: cfg,
+			}
+
+			go func() {
+				log.Fatal(srv.ListenAndServeTLS("", ""))
+			}()
+		} else if server.Type == "http" {
+			for i, host := range *server.Hosts {
+				hostNamePathMap[host.Name] = &(*server.Hosts)[i]
+			}
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				requestedHost := strings.Split(r.Host, ":")[0]
+				host := hostNamePathMap[requestedHost]
+				if host.HttpRedirectPort > 0 {
+					redirectUrl := fmt.Sprintf("https://%v:%v", host.Name, host.HttpRedirectPort)
+					http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
+				} else {
+					http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+				}
+			}
+
+			mux.HandleFunc("/", handler)
+
+			srv := http.Server{
+				Addr:    server.Listen,
+				Handler: mux,
+			}
+
+			go func() {
+				log.Fatal(srv.ListenAndServe())
+			}()
+		}
+		fmt.Println(fmt.Sprintf("Listening on %v://%v/", server.Type, server.Listen))
 	}
+	Hook()
+}
 
-	http.HandleFunc("/", handler)
+func Hook() {
+	sigs := make(chan os.Signal, 1)
+	done := make(chan bool, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	server := http.Server{
-		Addr:      "127.0.0.1:1443",
-		TLSConfig: cfg,
-	}
-
-	server.ListenAndServeTLS("", "")
+	go func() {
+		for {
+			select {
+			case sig := <-sigs:
+				fmt.Println(sig)
+				// cleanup code here
+				done <- true
+			}
+		}
+	}()
+	<-done
 }
