@@ -20,7 +20,7 @@ Multi domain/host web server in Golang.
   },
   {
     "type": "https",
-    "listen": ":1443",
+    "listen": "[::]:1443",
     "hosts": [
       {
         "name": "example.com",
