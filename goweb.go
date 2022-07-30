@@ -26,24 +26,27 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	for _, server := range *servers {
+	for serverIndex := range servers {
+		server := servers[serverIndex]
 		mux := http.NewServeMux()
-		server.hostMap = make(map[string]*Host, len(*server.Hosts))
+		server.hostMap = make(map[string]*Host, len(server.Hosts))
 		if server.Type == "https" {
 			cfg := &tls.Config{}
 
-			for i, host := range *server.Hosts {
+			for hostIndex := range server.Hosts {
+				host := server.Hosts[hostIndex]
 				keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 				if err != nil {
 					log.Fatal(err)
 				}
 				cfg.Certificates = append(cfg.Certificates, keyPair)
-				server.hostMap[host.Name] = &(*server.Hosts)[i]
+				server.hostMap[host.Name] = &host
 			}
 
 			cfg.BuildNameToCertificate()
 
 			handler := func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Server", "goweb")
 				requestedHost := strings.Split(r.Host, ":")[0]
 				host := server.hostMap[requestedHost]
 				http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
@@ -61,10 +64,12 @@ func main() {
 				log.Fatal(srv.ListenAndServeTLS("", ""))
 			}()
 		} else if server.Type == "http" {
-			for i, host := range *server.Hosts {
-				server.hostMap[host.Name] = &(*server.Hosts)[i]
+			for hostIndex := range server.Hosts {
+				host := server.Hosts[hostIndex]
+				server.hostMap[host.Name] = &host
 			}
 			handler := func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Server", "goweb")
 				requestedHost := strings.Split(r.Host, ":")[0]
 				host := server.hostMap[requestedHost]
 				if host.HttpRedirectPort > 0 {
