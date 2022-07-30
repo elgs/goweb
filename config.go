@@ -5,13 +5,15 @@ import (
 )
 
 type Server struct {
-	Type    string `json:"type"`
-	Listen  string `json:"listen"`
-	Hosts   []Host `json:"hosts"`
-	hostMap map[string]*Host
+	Disabled bool   `json:"disabled"`
+	Type     string `json:"type"`
+	Listen   string `json:"listen"`
+	Hosts    []Host `json:"hosts"`
+	hostMap  map[string]*Host
 }
 
 type Host struct {
+	Disabled         bool    `json:"disabled"`
 	Name             string  `json:"name"`
 	Path             string  `json:"path"`
 	HttpRedirectPort float64 `json:"https_redirect_port"`

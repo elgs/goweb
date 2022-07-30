@@ -28,6 +28,28 @@ func main() {
 
 	for serverIndex := range servers {
 		server := servers[serverIndex]
+		if server.Disabled {
+			continue
+		}
+
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Server", "goweb")
+			requestedHost := strings.Split(r.Host, ":")[0]
+			host := server.hostMap[requestedHost]
+			if host == nil {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				fmt.Fprint(w, fmt.Sprintf(`{"err":"Host '%v' is disabled."}`, requestedHost))
+				return
+			}
+			if host.HttpRedirectPort > 0 {
+				redirectUrl := fmt.Sprintf("https://%v:%v", host.Name, host.HttpRedirectPort)
+				http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
+			} else {
+				http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+			}
+		}
+
 		mux := http.NewServeMux()
 		server.hostMap = make(map[string]*Host, len(server.Hosts))
 		if server.Type == "https" {
@@ -35,6 +57,9 @@ func main() {
 
 			for hostIndex := range server.Hosts {
 				host := server.Hosts[hostIndex]
+				if host.Disabled {
+					continue
+				}
 				keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 				if err != nil {
 					log.Fatal(err)
@@ -44,13 +69,6 @@ func main() {
 			}
 
 			cfg.BuildNameToCertificate()
-
-			handler := func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Server", "goweb")
-				requestedHost := strings.Split(r.Host, ":")[0]
-				host := server.hostMap[requestedHost]
-				http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
-			}
 
 			mux.HandleFunc("/", handler)
 
@@ -66,18 +84,10 @@ func main() {
 		} else if server.Type == "http" {
 			for hostIndex := range server.Hosts {
 				host := server.Hosts[hostIndex]
-				server.hostMap[host.Name] = &host
-			}
-			handler := func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Server", "goweb")
-				requestedHost := strings.Split(r.Host, ":")[0]
-				host := server.hostMap[requestedHost]
-				if host.HttpRedirectPort > 0 {
-					redirectUrl := fmt.Sprintf("https://%v:%v", host.Name, host.HttpRedirectPort)
-					http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
-				} else {
-					http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+				if host.Disabled {
+					continue
 				}
+				server.hostMap[host.Name] = &host
 			}
 
 			mux.HandleFunc("/", handler)

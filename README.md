@@ -5,6 +5,7 @@ Multi domain/host web server in Golang.
 ```json
 [
   {
+    "disabled": false,
     "type": "http",
     "listen": ":1080",
     "hosts": [
@@ -23,6 +24,7 @@ Multi domain/host web server in Golang.
     "listen": "[::]:1443",
     "hosts": [
       {
+        "disabled": true,
         "name": "example.com",
         "path": "example.com",
         "cert_path": "/Users/qianchen/Desktop/certs/example.com/example.com.pem",
