@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -33,7 +32,7 @@ func main() {
 	}
 
 	for serverIndex := range servers {
-		server := servers[serverIndex]
+		server := &servers[serverIndex]
 		if server.Disabled {
 			continue
 		}
@@ -43,11 +42,20 @@ func main() {
 		}
 	}
 
-	Hook(nil)
+	Hook(func() {
+		for serverIndex := range servers {
+			server := &servers[serverIndex]
+			err := server.Shutdown()
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	})
 }
 
 func (this *Server) Shutdown() error {
-	return this.server.Shutdown(context.Background())
+	log.Println(fmt.Sprintf("Stopping listening on %v://%v/", this.Type, this.Listen))
+	return this.server.Close()
 }
 
 func indexFileNotExists(dir string) bool {
@@ -89,7 +97,7 @@ func (this *Server) Start() error {
 		cfg := &tls.Config{}
 
 		for hostIndex := range this.Hosts {
-			host := this.Hosts[hostIndex]
+			host := &this.Hosts[hostIndex]
 			if host.Disabled {
 				continue
 			}
@@ -98,7 +106,7 @@ func (this *Server) Start() error {
 				return err
 			}
 			cfg.Certificates = append(cfg.Certificates, keyPair)
-			this.hostMap[host.Name] = &host
+			this.hostMap[host.Name] = host
 		}
 
 		cfg.BuildNameToCertificate()
@@ -117,11 +125,11 @@ func (this *Server) Start() error {
 		}()
 	} else if this.Type == "http" {
 		for hostIndex := range this.Hosts {
-			host := this.Hosts[hostIndex]
+			host := &this.Hosts[hostIndex]
 			if host.Disabled {
 				continue
 			}
-			this.hostMap[host.Name] = &host
+			this.hostMap[host.Name] = host
 		}
 
 		mux.HandleFunc("/", handler)
@@ -147,8 +155,7 @@ func Hook(clean func()) {
 
 	go func() {
 		select {
-		case sig := <-sigs:
-			fmt.Println(sig)
+		case <-sigs:
 			if clean != nil {
 				clean()
 			}
