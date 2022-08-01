@@ -10,7 +10,7 @@ If you just want to host websites of a bunch of html/js/css files, and you don't
 $ go install github.com/elgs/goweb@latest
 ```
 
-Assuming you have go's bin in your PATH, otherwise, you could add the following line to your `.zshrc` or `.bashrc`.
+Assuming you have go's bin directory in your PATH, otherwise, you could add the following line to your `.zshrc` or `.bashrc`.
 
 ```
 export PATH=$HOME/go/bin:$PATH
