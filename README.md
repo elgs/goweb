@@ -20,7 +20,7 @@ Then run the server:
 
 ```sh
 $ goweb -c /path/to/config.json
-# if the config file happens to be goweb.json in the same directory, you could simple run:
+# if the config file happens to be goweb.json in the same directory, you could simply run:
 $ goweb
 # for help, run
 $ goweb --help
