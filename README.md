@@ -1,40 +1,78 @@
 # goweb
+
 Multi domain/host web server in Golang.
 
-### goweb.json
+# Install and Run
+```
+go get -u github.com/elgs/goweb
+```
+
+### Bare minimum
+
+```json
+[
+  {
+    "type": "http",
+    "listen": "[::]:80",
+    "hosts": [
+      {
+        "name": "example.com",
+        "path": "/path/to/webroot"
+      }
+    ]
+  }
+]
+```
+
+### Https with redirect
+
 ```json
 [
   {
     "disabled": false,
     "type": "http",
-    "listen": ":1080",
+    "listen": "[::]:80",
     "hosts": [
       {
         "name": "example.com",
-        "path": "example.com"
-      },
-      {
-        "name": "test.example.com",
-        "https_redirect_port": 1443
+        "https_redirect_port": 443
       }
     ]
   },
   {
     "type": "https",
-    "listen": "[::]:1443",
+    "listen": "[::]:443",
     "hosts": [
       {
-        "disabled": true,
         "name": "example.com",
-        "path": "example.com",
-        "cert_path": "/Users/qianchen/Desktop/certs/example.com/example.com.pem",
-        "key_path": "/Users/qianchen/Desktop/certs/example.com/example.com-key.pem"
+        "path": "/path/to/webroot",
+        "cert_path": "/path/to/cert/file",
+        "key_path": "/path/to/key/file"
+      }
+    ]
+  }
+]
+```
+
+### Multiple domains
+
+```json
+[
+  {
+    "type": "https",
+    "listen": "[::]:443",
+    "hosts": [
+      {
+        "name": "example.com",
+        "path": "/path/to/webroot",
+        "cert_path": "/path/to/cert/file",
+        "key_path": "/path/to/key/file"
       },
       {
-        "name": "test.example.com",
-        "path": "test.example.com",
-        "cert_path": "/Users/qianchen/Desktop/certs/test.example.com/test.example.com.pem",
-        "key_path": "/Users/qianchen/Desktop/certs/test.example.com/test.example.com-key.pem"
+        "name": "example.net",
+        "path": "/path/to/webroot",
+        "cert_path": "/path/to/cert/file",
+        "key_path": "/path/to/key/file"
       }
     ]
   }
