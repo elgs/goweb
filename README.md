@@ -134,3 +134,42 @@ $ rm -rf $HOME/go/bin/goweb
 | https_redirect_port | number | When it's greater than 0, it redirects the request to the same url but with https.   | 443                          |
 | cert_path           | string | Path to the X.509 cert file.                                                         | /path/to/certfile            |
 | key_path            | string | Path to the X.509 key file.                                                          | /path/to/keyfile             |
+
+## Auto start with systemd
+
+Create service unit file `/etc/systemd/system/goweb.service` with the following content:
+```
+[Unit]
+After=network.target
+
+[Service]
+ExecStart=/home/elgs/go/bin/goweb -c /home/elgs/goweb.json
+
+[Install]
+WantedBy=default.target
+```
+
+Enable the service:
+```sh
+$ sudo systemctl enable goweb
+```
+
+Remove the service:
+```sh
+$ sudo systemctl disable goweb
+```
+
+Start the service
+```sh
+$ sudo systemctl start goweb
+```
+
+Stop the service
+```sh
+$ sudo systemctl stop goweb
+```
+
+Check service status
+```sh
+$ sudo systemctl status goweb
+```
