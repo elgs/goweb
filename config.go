@@ -36,7 +36,7 @@ func (this *Server) Start() error {
 			return
 		}
 		if host.HttpRedirectPort > 0 {
-			redirectUrl := fmt.Sprintf("https://%v:%v", host.Name, host.HttpRedirectPort)
+			redirectUrl := fmt.Sprintf("https://%v:%v%v", host.Name, host.HttpRedirectPort, r.RequestURI)
 			http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
 		} else {
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)

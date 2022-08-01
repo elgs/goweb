@@ -35,24 +35,22 @@ func main() {
 		}
 	}
 
-	StartAdmin()
-
-	Hook()
+	Hook(nil)
 }
 
-func Hook() {
+func Hook(clean func()) {
 	sigs := make(chan os.Signal, 1)
 	done := make(chan bool, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		for {
-			select {
-			case sig := <-sigs:
-				fmt.Println(sig)
-				// cleanup code here
-				done <- true
+		select {
+		case sig := <-sigs:
+			fmt.Println(sig)
+			if clean != nil {
+				clean()
 			}
+			done <- true
 		}
 	}()
 	<-done
