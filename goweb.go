@@ -17,11 +17,13 @@ func main() {
 	flag.Parse()
 	confBytes, err := ioutil.ReadFile(*confPath)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		return
 	}
 	servers, err = NewConfig(confBytes)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		return
 	}
 
 	for serverIndex := range servers {
