@@ -29,12 +29,11 @@ func (this *Server) Shutdown() error {
 
 func indexFileNotExists(dir string) bool {
 	indexPath := path.Join(dir, "index.html")
-	if stats, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) {
+	if stats, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) || stats.IsDir() {
+		// Please don't hack with index.html/index.html, you will get 404 if you request index.html or index.html/.
 		return true
-	} else if stats.IsDir() {
-		return indexFileNotExists(indexPath)
 	}
-	return true
+	return false
 }
 
 func (this *Server) Start() error {
@@ -52,7 +51,8 @@ func (this *Server) Start() error {
 			redirectUrl := fmt.Sprintf("https://%v:%v%v", host.Name, host.HttpRedirectPort, r.RequestURI)
 			http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
 		} else {
-			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(host.Path) {
+			indexPath := path.Join(host.Path, r.URL.Path)
+			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(indexPath) {
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, "404 page not found")
 				return
