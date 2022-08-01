@@ -152,25 +152,25 @@ WantedBy=default.target
 
 Enable the service:
 
-```sh
+```
 $ sudo systemctl enable goweb
 ```
 
 Remove the service:
 
-```sh
+```
 $ sudo systemctl disable goweb
 ```
 
 Start the service
 
-```sh
+```
 $ sudo systemctl start goweb
 ```
 
 Stop the service
 
-```sh
+```
 $ sudo systemctl stop goweb
 ```
 
