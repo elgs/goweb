@@ -7,7 +7,7 @@ If you just want to host websites of a bunch of html/js/css files, and you don't
 ## Install and Run
 
 ```sh
-$ go install github.com/elgs/goweb@latest
+$ GOPROXY=direct go install github.com/elgs/goweb@latest
 ```
 
 Assuming you have go's bin directory in your PATH, otherwise, you could add the following line to your `.zshrc` or `.bashrc`.
