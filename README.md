@@ -19,13 +19,23 @@ export PATH=$HOME/go/bin:$PATH
 Then run the server:
 
 ```sh
-$ goweb goweb.json
+$ goweb -c /path/to/config.json
+# if the config file happens to be goweb.json in the same directory, you could simple run:
+$ goweb
+# for help, run
+$ goweb --help
 ```
 
 or if you will listen to any ports lower than 1024:
 
 ```sh
-$ sudo goweb goweb.json
+$ sudo goweb -c /path/to/config.json
+```
+
+## Uninstall
+
+```
+$ rm -rf $HOME/go/bin/goweb 
 ```
 
 ## Configurations
