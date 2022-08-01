@@ -27,7 +27,8 @@
         "name": "test.example.com",
         "path": "web/test.example.com",
         "cert_path": "certs/test.example.com/test.example.com.pem",
-        "key_path": "certs/test.example.com/test.example.com-key.pem"
+        "key_path": "certs/test.example.com/test.example.com-key.pem",
+        "disable_dir_listing": false
       }
     ]
   }

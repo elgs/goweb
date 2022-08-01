@@ -35,7 +35,7 @@ $ sudo goweb -c /path/to/config.json
 ## Uninstall
 
 ```
-$ rm -rf $HOME/go/bin/goweb 
+$ rm -rf $HOME/go/bin/goweb
 ```
 
 ## Configurations
@@ -62,7 +62,6 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
-    "disabled": false,
     "type": "http",
     "listen": "[::]:80",
     "hosts": [
@@ -79,8 +78,8 @@ $ rm -rf $HOME/go/bin/goweb
       {
         "name": "example.com",
         "path": "/path/to/webroot",
-        "cert_path": "/path/to/cert/file",
-        "key_path": "/path/to/key/file"
+        "cert_path": "/path/to/certfile",
+        "key_path": "/path/to/keyfile"
       }
     ]
   }
@@ -98,16 +97,40 @@ $ rm -rf $HOME/go/bin/goweb
       {
         "name": "example.com",
         "path": "/path/to/webroot",
-        "cert_path": "/path/to/cert/file",
-        "key_path": "/path/to/key/file"
+        "cert_path": "/path/to/certfile",
+        "key_path": "/path/to/keyfile"
       },
       {
         "name": "example.net",
         "path": "/path/to/webroot",
-        "cert_path": "/path/to/cert/file",
-        "key_path": "/path/to/key/file"
+        "cert_path": "/path/to/certfile",
+        "key_path": "/path/to/keyfile"
       }
     ]
   }
 ]
 ```
+
+### All parameters
+
+#### Server
+
+| Field    | Type   | Descriptions                                   | Examples                            |
+| -------- | ------ | ---------------------------------------------- | ----------------------------------- |
+| name     | string | Name of the server. Please make it unique      | 443, 80, my_server                  |
+| disabled | bool   | True to disable the server, defaults to false. | false, true                         |
+| type     | string | http or https                                  | http, https                         |
+| listen   | string | Host and port the server listens on.           | 127.0.0.1:80, 0.0.0.0:443, [::]:443 |
+| hosts    | array  | A list of hosts the server is hosting.         | See the host definition.            |
+
+#### Host
+
+| Field               | Type   | Descriptions                                                                       | Examples                     |
+| ------------------- | ------ | ---------------------------------------------------------------------------------- | ---------------------------- |
+| name                | string | Full domain name.                                                                  | example.com, www.example.com |
+| disabled            | bool   | True to disable the host. Defaults to false.                                       | false, true                  |
+| disable_dir_listing | bool   | True to disable dir listing if index.html file is not present. Defaults to false.  | false, true                  |
+| path                | string | Path to the web root.                                                              | /path/to/webroot             |
+| https_redirect_port | number | When it's greater than 0, it redirects the request to the same url but with https. | 443                          |
+| cert_path           | string | Path to the X.509 cert file.                                                       | /path/to/certfile            |
+| key_path            | string | Path to the X.509 key file.                                                        | /path/to/keyfile             |

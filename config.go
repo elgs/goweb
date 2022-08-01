@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path"
 	"strings"
 )
 
@@ -24,6 +27,16 @@ func (this *Server) Shutdown() error {
 	return this.server.Shutdown(context.Background())
 }
 
+func indexFileNotExists(dir string) bool {
+	indexPath := path.Join(dir, "index.html")
+	if stats, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) {
+		return true
+	} else if stats.IsDir() {
+		return indexFileNotExists(indexPath)
+	}
+	return true
+}
+
 func (this *Server) Start() error {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "goweb")
@@ -39,6 +52,11 @@ func (this *Server) Start() error {
 			redirectUrl := fmt.Sprintf("https://%v:%v%v", host.Name, host.HttpRedirectPort, r.RequestURI)
 			http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
 		} else {
+			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(host.Path) {
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, "404 page not found")
+				return
+			}
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
 		}
 	}
@@ -101,12 +119,13 @@ func (this *Server) Start() error {
 }
 
 type Host struct {
-	Disabled         bool    `json:"disabled"`
-	Name             string  `json:"name"`
-	Path             string  `json:"path"`
-	HttpRedirectPort float64 `json:"https_redirect_port"`
-	CertPath         string  `json:"cert_path"`
-	KeyPath          string  `json:"key_path"`
+	Disabled          bool    `json:"disabled"`
+	DisableDirListing bool    `json:"disable_dir_listing"`
+	Name              string  `json:"name"`
+	Path              string  `json:"path"`
+	HttpRedirectPort  float64 `json:"https_redirect_port"`
+	CertPath          string  `json:"cert_path"`
+	KeyPath           string  `json:"key_path"`
 }
 
 func NewConfig(confBytes []byte) ([]Server, error) {
