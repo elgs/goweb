@@ -1,0 +1,34 @@
+[
+  {
+    "type": "http",
+    "listen": "[::]:80",
+    "hosts": [
+      {
+        "name": "example.com",
+        "https_redirect_port": 443
+      },
+      {
+        "name": "test.example.com",
+        "https_redirect_port": 443
+      }
+    ]
+  },
+  {
+    "type": "https",
+    "listen": "[::]:443",
+    "hosts": [
+      {
+        "name": "example.com",
+        "path": "web/example.com",
+        "cert_path": "certs/example.com/example.com.pem",
+        "key_path": "certs/example.com/example.com-key.pem"
+      },
+      {
+        "name": "test.example.com",
+        "path": "web/test.example.com",
+        "cert_path": "certs/test.example.com/test.example.com.pem",
+        "key_path": "certs/test.example.com/test.example.com-key.pem"
+      }
+    ]
+  }
+]
