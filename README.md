@@ -179,3 +179,39 @@ Check service status
 ```sh
 $ sudo systemctl status goweb
 ```
+
+## Auto renew certificates with certbot
+
+Assuming certbot is installed.
+
+Create service unit file `/etc/systemd/system/certbot.service` with the following content:
+
+```
+[Unit]
+Description=Let's Encrypt renewal
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --agree-tos --deploy-hook "systemctl reload goweb"
+```
+
+Create timer unit file `/etc/systemd/system/certbot.timer` with the following content:
+
+```
+[Unit]
+Description=Twice daily renewal of Let's Encrypt's certificates
+
+[Timer]
+OnCalendar=0/12:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable the timer:
+
+```
+$ systemctl enable certbot.timer
+```
