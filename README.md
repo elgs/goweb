@@ -138,6 +138,7 @@ $ rm -rf $HOME/go/bin/goweb
 ## Auto start with systemd
 
 Create service unit file `/etc/systemd/system/goweb.service` with the following content:
+
 ```
 [Unit]
 After=network.target
@@ -150,26 +151,31 @@ WantedBy=default.target
 ```
 
 Enable the service:
+
 ```sh
 $ sudo systemctl enable goweb
 ```
 
 Remove the service:
+
 ```sh
 $ sudo systemctl disable goweb
 ```
 
 Start the service
+
 ```sh
 $ sudo systemctl start goweb
 ```
 
 Stop the service
+
 ```sh
 $ sudo systemctl stop goweb
 ```
 
 Check service status
+
 ```sh
 $ sudo systemctl status goweb
 ```
