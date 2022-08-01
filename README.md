@@ -213,5 +213,5 @@ WantedBy=timers.target
 Enable the timer:
 
 ```
-$ systemctl enable certbot.timer
+$ sudo systemctl enable certbot.timer
 ```
