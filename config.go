@@ -30,7 +30,6 @@ func (this *Server) Shutdown() error {
 func indexFileNotExists(dir string) bool {
 	indexPath := path.Join(dir, "index.html")
 	if stats, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) || stats.IsDir() {
-		// Please don't hack with index.html/index.html, you will get 404 if you request index.html or index.html/.
 		return true
 	}
 	return false
