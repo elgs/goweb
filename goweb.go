@@ -54,8 +54,12 @@ func main() {
 }
 
 func (this *Server) Shutdown() error {
+	err := this.server.Close()
+	if err != nil {
+		return err
+	}
 	log.Println(fmt.Sprintf("Stopping listening on %v://%v/", this.Type, this.Listen))
-	return this.server.Close()
+	return nil
 }
 
 func indexFileNotExists(dir string) bool {
