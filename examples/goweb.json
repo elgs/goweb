@@ -5,7 +5,7 @@
     "hosts": [
       {
         "name": "example.com",
-        "https_redirect_port": 443
+        "path": "web/example.com"
       },
       {
         "name": "test.example.com",

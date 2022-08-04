@@ -6,11 +6,11 @@ import (
 )
 
 type Server struct {
-	Name     string `json:"name"`
-	Disabled bool   `json:"disabled"`
-	Type     string `json:"type"`
-	Listen   string `json:"listen"`
-	Hosts    []Host `json:"hosts"`
+	Name     string  `json:"name"`
+	Disabled bool    `json:"disabled"`
+	Type     string  `json:"type"`
+	Listen   string  `json:"listen"`
+	Hosts    []*Host `json:"hosts"`
 	hostMap  map[string]*Host
 	server   *http.Server
 }
@@ -25,8 +25,8 @@ type Host struct {
 	KeyPath           string  `json:"key_path"`
 }
 
-func NewConfig(confBytes []byte) ([]Server, error) {
-	var servers []Server
+func NewConfig(confBytes []byte) ([]*Server, error) {
+	var servers []*Server
 	err := json.Unmarshal(confBytes, &servers)
 	return servers, err
 }

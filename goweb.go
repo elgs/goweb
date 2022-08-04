@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -15,7 +16,7 @@ import (
 	"syscall"
 )
 
-var servers []Server
+var servers []*Server
 
 func main() {
 	confPath := flag.String("c", "goweb.json", "configration file path")
@@ -31,8 +32,7 @@ func main() {
 		return
 	}
 
-	for serverIndex := range servers {
-		server := &servers[serverIndex]
+	for _, server := range servers {
 		if server.Disabled {
 			continue
 		}
@@ -42,9 +42,13 @@ func main() {
 		}
 	}
 
+	err = StartAdmin()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	Hook(func() {
-		for serverIndex := range servers {
-			server := &servers[serverIndex]
+		for _, server := range servers {
 			err := server.Shutdown()
 			if err != nil {
 				log.Println(err)
@@ -54,12 +58,7 @@ func main() {
 }
 
 func (this *Server) Shutdown() error {
-	err := this.server.Close()
-	if err != nil {
-		return err
-	}
-	log.Println(fmt.Sprintf("Stopping listening on %v://%v/", this.Type, this.Listen))
-	return nil
+	return this.server.Shutdown(context.Background())
 }
 
 func indexFileNotExists(dir string) bool {
@@ -100,8 +99,7 @@ func (this *Server) Start() error {
 	if this.Type == "https" {
 		cfg := &tls.Config{}
 
-		for hostIndex := range this.Hosts {
-			host := &this.Hosts[hostIndex]
+		for _, host := range this.Hosts {
 			if host.Disabled {
 				continue
 			}
@@ -125,11 +123,13 @@ func (this *Server) Start() error {
 		this.server = &srv
 
 		go func() {
-			log.Fatal(srv.ListenAndServeTLS("", ""))
+			err := srv.ListenAndServeTLS("", "")
+			if err != nil {
+				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
+			}
 		}()
 	} else if this.Type == "http" {
-		for hostIndex := range this.Hosts {
-			host := &this.Hosts[hostIndex]
+		for _, host := range this.Hosts {
 			if host.Disabled {
 				continue
 			}
@@ -145,7 +145,10 @@ func (this *Server) Start() error {
 		this.server = &srv
 
 		go func() {
-			log.Fatal(srv.ListenAndServe())
+			err := srv.ListenAndServe()
+			if err != nil {
+				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
+			}
 		}()
 	}
 	log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
