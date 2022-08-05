@@ -14,6 +14,8 @@ import (
 	"path"
 	"strings"
 	"syscall"
+
+	"github.com/elgs/gostrgen"
 )
 
 var servers []*Server
@@ -33,9 +35,6 @@ func main() {
 	}
 
 	for _, server := range servers {
-		if server.Disabled {
-			continue
-		}
 		err := server.Start()
 		if err != nil {
 			log.Fatal(err)
@@ -58,7 +57,10 @@ func main() {
 }
 
 func (this *Server) Shutdown() error {
-	return this.server.Shutdown(context.Background())
+	if this.server != nil {
+		return this.server.Shutdown(context.Background())
+	}
+	return nil
 }
 
 func indexFileNotExists(dir string) bool {
@@ -70,6 +72,12 @@ func indexFileNotExists(dir string) bool {
 }
 
 func (this *Server) Start() error {
+	if this.RuntimeId == "" {
+		this.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+	}
+	if this.Disabled {
+		return nil
+	}
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "goweb")
 		requestedHost := strings.Split(r.Host, ":")[0]
@@ -100,6 +108,9 @@ func (this *Server) Start() error {
 		cfg := &tls.Config{}
 
 		for _, host := range this.Hosts {
+			if host.RuntimeId == "" {
+				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+			}
 			if host.Disabled {
 				continue
 			}
@@ -130,6 +141,9 @@ func (this *Server) Start() error {
 		}()
 	} else if this.Type == "http" {
 		for _, host := range this.Hosts {
+			if host.RuntimeId == "" {
+				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+			}
 			if host.Disabled {
 				continue
 			}

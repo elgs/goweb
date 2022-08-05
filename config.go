@@ -6,23 +6,25 @@ import (
 )
 
 type Server struct {
-	Name     string  `json:"name"`
-	Disabled bool    `json:"disabled"`
-	Type     string  `json:"type"`
-	Listen   string  `json:"listen"`
-	Hosts    []*Host `json:"hosts"`
-	hostMap  map[string]*Host
-	server   *http.Server
+	RuntimeId string  `json:"runtime_id"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Listen    string  `json:"listen"`
+	Disabled  bool    `json:"disabled"`
+	Hosts     []*Host `json:"hosts"`
+	hostMap   map[string]*Host
+	server    *http.Server
 }
 
 type Host struct {
-	Disabled          bool    `json:"disabled"`
-	DisableDirListing bool    `json:"disable_dir_listing"`
+	RuntimeId         string  `json:"runtime_id"`
 	Name              string  `json:"name"`
 	Path              string  `json:"path"`
-	HttpRedirectPort  float64 `json:"https_redirect_port"`
 	CertPath          string  `json:"cert_path"`
 	KeyPath           string  `json:"key_path"`
+	Disabled          bool    `json:"disabled"`
+	HttpRedirectPort  float64 `json:"https_redirect_port"`
+	DisableDirListing bool    `json:"disable_dir_listing"`
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {
