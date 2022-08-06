@@ -32,6 +32,7 @@ func main() {
 	if err != nil {
 		if startAdmin {
 			servers = []*Server{}
+			log.Println(err)
 		} else {
 			log.Fatalln(err)
 		}
