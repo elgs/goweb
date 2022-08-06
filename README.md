@@ -6,7 +6,7 @@ If you just want to host websites of a bunch of html/js/css files, and you don't
 
 ## Install and Run
 
-```sh
+```
 $ go install github.com/elgs/goweb@latest
 ```
 
@@ -18,7 +18,7 @@ export PATH=$HOME/go/bin:$PATH
 
 Then run the server:
 
-```sh
+```
 $ goweb -c /path/to/config.json
 # if the config file happens to be goweb.json in the same directory, you could simply run:
 $ goweb
@@ -31,6 +31,19 @@ or if you will listen to any ports lower than 1024:
 ```sh
 $ sudo goweb -c /path/to/config.json
 ```
+
+### Web Admin Interface
+
+The goweb admin is a web interface that will help you to generate config json and test server configurations.
+
+```
+$ goweb admin
+2022/08/06 03:05:17 Listening on https://[::]:443/
+Web admin url: http://[::]:54666/admin
+Access token: pj8s1jy7n5ep0l9j9rwdk70a7j6ppmf7
+```
+
+A config file will be optional to run goweb in admin mode.
 
 ## Uninstall
 
