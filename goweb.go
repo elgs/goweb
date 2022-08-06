@@ -116,7 +116,7 @@ func (this *Server) Start() error {
 			}
 			keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("%v for host: %v, server: %v, %v", err, host.Name, this.Name, this.Listen)
 			}
 			cfg.Certificates = append(cfg.Certificates, keyPair)
 			this.hostMap[host.Name] = host
