@@ -14,22 +14,35 @@ import (
 	"github.com/elgs/gostrgen"
 )
 
-var dev = false
-
 //go:embed webadmin
 var webadmin embed.FS
 
+func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) bool {
+	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", r.Header.Get("Access-Control-Request-Method"))
+	w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
+	if r.Method == "OPTIONS" {
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	token := r.URL.Query().Get("access_token")
+	if token == "" {
+		token = r.Header.Get("access_token")
+	}
+	if token != secret {
+		w.WriteHeader(http.StatusUnauthorized)
+		err := errors.New("Invalid access token.")
+		fmt.Fprintln(w, fmt.Sprintf(`{"err":"%v"}`, err))
+		log.Println(err)
+		return true
+	}
+	return false
+}
+
 func StartAdmin() error {
-
-	secret, err := gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
-	if err != nil {
-		return err
-	}
-
+	secret, _ := gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 	port := rand.Intn(10000) + 50000
-	if dev {
-		port = 2022
-	}
 	listen := fmt.Sprintf("[::]:%v", port)
 
 	mux := http.NewServeMux()
@@ -38,24 +51,10 @@ func StartAdmin() error {
 		log.Fatal(err)
 	}
 
-	mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("access_token")
-		if !dev && token != secret {
-			fmt.Fprintln(w, "Invalid access token.")
-			return
-		}
-		http.StripPrefix("/admin/", http.FileServer(http.FS(sub))).ServeHTTP(w, r)
-	})
+	mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
 
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		token := r.URL.Query().Get("access_token")
-		if !dev && token != secret {
-			w.WriteHeader(http.StatusBadRequest)
-			err := errors.New("Invalid access token.")
-			fmt.Fprintln(w, fmt.Sprintf(`{"err":"%v"}`, err))
-			log.Println(err)
+		if CheckAccessToken(secret, w, r) {
 			return
 		}
 
@@ -126,14 +125,7 @@ func StartAdmin() error {
 	})
 
 	mux.HandleFunc("/api/server/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		token := r.URL.Query().Get("access_token")
-		if !dev && token != secret {
-			w.WriteHeader(http.StatusBadRequest)
-			err := errors.New("Invalid access token.")
-			fmt.Fprintln(w, fmt.Sprintf(`{"err":"%v"}`, err))
-			log.Println(err)
+		if CheckAccessToken(secret, w, r) {
 			return
 		}
 
