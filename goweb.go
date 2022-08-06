@@ -21,16 +21,13 @@ import (
 var servers []*Server
 
 func main() {
-	startAdmin := false
-	if len(os.Args) > 1 && os.Args[1] == "admin" {
-		startAdmin = true
-	}
 
 	confPath := flag.String("c", "goweb.json", "configration file path")
+	startAdmin := flag.Bool("admin", false, "start admin web interface")
 	flag.Parse()
 	confBytes, err := ioutil.ReadFile(*confPath)
 	if err != nil {
-		if startAdmin {
+		if *startAdmin {
 			servers = []*Server{}
 			log.Println(err)
 		} else {
@@ -51,10 +48,10 @@ func main() {
 	}
 
 	if dev {
-		startAdmin = true
+		*startAdmin = true
 	}
 
-	if startAdmin {
+	if *startAdmin {
 		err = StartAdmin()
 		if err != nil {
 			log.Fatalln(err)

@@ -37,7 +37,7 @@ $ sudo goweb -c /path/to/config.json
 The goweb admin is a web interface that will help you to generate config json and test server configurations.
 
 ```
-$ goweb admin
+$ goweb -admin
 2022/08/06 03:05:17 Listening on https://[::]:443/
 Web admin url: http://[::]:54666/admin
 Access token: pj8s1jy7n5ep0l9j9rwdk70a7j6ppmf7
