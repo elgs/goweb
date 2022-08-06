@@ -14,6 +14,8 @@ import (
 	"github.com/elgs/gostrgen"
 )
 
+var dev = false
+
 //go:embed webadmin
 var webadmin embed.FS
 
@@ -43,6 +45,9 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 func StartAdmin() error {
 	secret, _ := gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 	port := rand.Intn(10000) + 50000
+	if dev {
+		port = 2022
+	}
 	listen := fmt.Sprintf("[::]:%v", port)
 
 	mux := http.NewServeMux()

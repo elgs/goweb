@@ -21,29 +21,43 @@ import (
 var servers []*Server
 
 func main() {
+	startAdmin := false
+	if len(os.Args) > 1 && os.Args[1] == "admin" {
+		startAdmin = true
+	}
+
 	confPath := flag.String("c", "goweb.json", "configration file path")
 	flag.Parse()
 	confBytes, err := ioutil.ReadFile(*confPath)
 	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	servers, err = NewConfig(confBytes)
-	if err != nil {
-		fmt.Println(err)
-		return
+		if startAdmin {
+			servers = []*Server{}
+		} else {
+			log.Fatalln(err)
+		}
+	} else {
+		servers, err = NewConfig(confBytes)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	for _, server := range servers {
 		err := server.Start()
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalln(err)
 		}
 	}
 
-	err = StartAdmin()
-	if err != nil {
-		log.Fatal(err)
+	if dev {
+		startAdmin = true
+	}
+
+	if startAdmin {
+		err = StartAdmin()
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	Hook(func() {
