@@ -6,9 +6,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"hash/fnv"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -25,7 +27,7 @@ func main() {
 	confPath := flag.String("c", "goweb.json", "configration file path")
 	startAdmin := flag.Bool("admin", false, "start admin web interface")
 	flag.Parse()
-	confBytes, err := ioutil.ReadFile(*confPath)
+	confBytes, err := os.ReadFile(*confPath)
 	if err != nil {
 		if *startAdmin {
 			servers = []*Server{}
@@ -100,10 +102,9 @@ func (this *Server) Start() error {
 			fmt.Fprint(w, fmt.Sprintf(`{"err":"Host '%v' is disabled."}`, requestedHost))
 			return
 		}
-		if host.HttpRedirectPort > 0 {
-			redirectUrl := fmt.Sprintf("https://%v:%v%v", host.Name, host.HttpRedirectPort, r.RequestURI)
-			http.Redirect(w, r, redirectUrl, http.StatusMovedPermanently)
-		} else {
+		if host.Type == "301_redirect" {
+			http.Redirect(w, r, fmt.Sprintf("%v%v", host.RedirectURL, r.RequestURI), http.StatusMovedPermanently)
+		} else if host.Type == "serve_static" {
 			indexPath := path.Join(host.Path, r.URL.Path)
 			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(indexPath) {
 				w.WriteHeader(http.StatusNotFound)
@@ -111,6 +112,65 @@ func (this *Server) Start() error {
 				return
 			}
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+		} else if host.Type == "reverse_proxy" {
+			forwardURLs := strings.Fields(host.ForwardURLs)
+			h := fnv.New32a()
+			h.Write([]byte(r.Host))
+			forwardURL := forwardURLs[int(h.Sum32())%len(forwardURLs)]
+			requestURL := fmt.Sprintf("%v%v", forwardURL, r.RequestURI)
+
+			client := &http.Client{
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+			req, err := http.NewRequest(r.Method, requestURL, r.Body)
+			defer r.Body.Close()
+			if err != nil {
+				log.Println(err)
+			}
+			// copy request headers
+			for k, vs := range r.Header {
+				for _, v := range vs {
+					req.Header.Set(k, v)
+				}
+			}
+
+			res, err := client.Do(req)
+			if err != nil {
+				log.Println(err)
+			}
+
+			body, err := io.ReadAll(res.Body)
+			defer res.Body.Close()
+			if err != nil {
+				log.Println(err)
+			}
+			// copy response headers
+			for k, vs := range res.Header {
+				for _, v := range vs {
+					if strings.ToLower(k) == "location" {
+						lURL, err := url.Parse(v)
+						if err != nil {
+							log.Println(err)
+						}
+						fURL, err := url.Parse(forwardURL)
+						if err != nil {
+							log.Println(err)
+						}
+						if fURL.Scheme == "http" && fURL.Scheme == lURL.Scheme {
+							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":80")), "")
+						} else if fURL.Scheme == "https" && fURL.Scheme == lURL.Scheme {
+							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":443")), "")
+						} else {
+							v = strings.ReplaceAll(v, forwardURL, "")
+						}
+					}
+					w.Header().Set(k, v)
+				}
+			}
+			w.WriteHeader(res.StatusCode)
+			w.Write(body)
 		}
 	}
 

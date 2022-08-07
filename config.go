@@ -17,14 +17,16 @@ type Server struct {
 }
 
 type Host struct {
-	RuntimeId         string  `json:"runtime_id"`
-	Name              string  `json:"name"`
-	Path              string  `json:"path"`
-	CertPath          string  `json:"cert_path"`
-	KeyPath           string  `json:"key_path"`
-	Disabled          bool    `json:"disabled"`
-	HttpRedirectPort  float64 `json:"https_redirect_port"`
-	DisableDirListing bool    `json:"disable_dir_listing"`
+	RuntimeId         string `json:"runtime_id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"` // serve_static, 301_redirect and reverse_proxy
+	Path              string `json:"path"` // for type serve_static
+	CertPath          string `json:"cert_path"`
+	KeyPath           string `json:"key_path"`
+	ForwardURLs       string `json:"forward_urls"` // for type reverse_proxy space separated
+	RedirectURL       string `json:"redirect_url"` // for type 301_redirect
+	Disabled          bool   `json:"disabled"`
+	DisableDirListing bool   `json:"disable_dir_listing"`
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {

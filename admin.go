@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -64,7 +64,8 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPost {
-			body, err := ioutil.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
+			defer r.Body.Close()
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
@@ -135,7 +136,8 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPost {
-			body, err := ioutil.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
+			defer r.Body.Close()
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
