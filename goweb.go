@@ -179,8 +179,7 @@ func (this *Server) Start() error {
 	if this.Type == "https" {
 		cfg := &tls.Config{}
 
-		for hostIndex := range this.Hosts {
-			host := this.Hosts[hostIndex]
+		for _, host := range this.Hosts {
 			if host.RuntimeId == "" {
 				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 			}
@@ -213,8 +212,7 @@ func (this *Server) Start() error {
 			}
 		}()
 	} else if this.Type == "http" {
-		for hostIndex := range this.Hosts {
-			host := this.Hosts[hostIndex]
+		for _, host := range this.Hosts {
 			if host.RuntimeId == "" {
 				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 			}
