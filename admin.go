@@ -47,6 +47,7 @@ func StartAdmin() error {
 	port := rand.Intn(10000) + 50000
 	if dev {
 		port = 2022
+		secret = "a"
 	}
 	listen := fmt.Sprintf("[::]:%v", port)
 
