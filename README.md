@@ -156,7 +156,7 @@ $ rm -rf $HOME/go/bin/goweb
 | Field    | Type   | Descriptions                                   | Examples                            |
 | -------- | ------ | ---------------------------------------------- | ----------------------------------- |
 | name     | string | Name of the server. Please make it unique      | 443, 80, my_server                  |
-| type     | string | http or https                                  | http, https                         |
+| type     | string | `http` or `https`                              | http, https                         |
 | listen   | string | Host and port the server listens on.           | 127.0.0.1:80, 0.0.0.0:443, [::]:443 |
 | disabled | bool   | True to disable the server, defaults to false. | false, true                         |
 | hosts    | array  | A list of hosts the server is hosting.         | See the host definition.            |
@@ -166,9 +166,9 @@ $ rm -rf $HOME/go/bin/goweb
 | Field               | Type   | Descriptions                                                                         | Examples                                         |
 | ------------------- | ------ | ------------------------------------------------------------------------------------ | ------------------------------------------------ |
 | name                | string | Full domain name, which is used to match the domain name in the browser/request url. | example.com, www.example.com                     |
-| type                | string | Possible types are: serve_static, 301_redirect and reverse_proxy.                    | serve_static, 301_redirect, reverse_proxy        |
+| type                | string | Possible types are: `serve_static`, `301_redirect` and `reverse_proxy`.              | serve_static, 301_redirect, reverse_proxy        |
 | path                | string | Path to the web root.                                                                | /path/to/webroot                                 |
-| redirect_url        | number | When it's greater than 0, it redirects the request to the same url but with https.   | 443                                              |
+| redirect_url        | string | The URL that will be 301 redirected to host type is set to `301_redirect`.           | 443                                              |
 | forward_urls        | string | Space separated list of upstream servers.                                            | http://s1.example.com:1234 http://s2.example.com |
 | cert_path           | string | Path to the X.509 cert file.                                                         | /path/to/certfile                                |
 | key_path            | string | Path to the X.509 key file.                                                          | /path/to/keyfile                                 |
