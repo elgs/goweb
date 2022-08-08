@@ -5,11 +5,13 @@
     "hosts": [
       {
         "name": "example.com",
+        "type": "serve_static",
         "path": "web/example.com"
       },
       {
         "name": "test.example.com",
-        "https_redirect_port": 443
+        "type": "301_redirect",
+        "redirect_url": "https://test.example.com"
       }
     ]
   },
@@ -19,6 +21,7 @@
     "hosts": [
       {
         "name": "example.com",
+        "type": "serve_static",
         "path": "web/example.com",
         "cert_path": "certs/example.com/example.com.pem",
         "key_path": "certs/example.com/example.com-key.pem"
@@ -26,6 +29,7 @@
       {
         "name": "test.example.com",
         "path": "web/test.example.com",
+        "type": "serve_static",
         "cert_path": "certs/test.example.com/test.example.com.pem",
         "key_path": "certs/test.example.com/test.example.com-key.pem",
         "disable_dir_listing": false

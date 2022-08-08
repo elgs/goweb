@@ -63,6 +63,7 @@ $ rm -rf $HOME/go/bin/goweb
     "hosts": [
       {
         "name": "example.com",
+        "type": "serve_static",
         "path": "/path/to/webroot"
       }
     ]
@@ -80,7 +81,8 @@ $ rm -rf $HOME/go/bin/goweb
     "hosts": [
       {
         "name": "example.com",
-        "https_redirect_port": 443
+        "type": "301_redirect",
+        "redirect_url": "https://example.com"
       }
     ]
   },
@@ -90,7 +92,28 @@ $ rm -rf $HOME/go/bin/goweb
     "hosts": [
       {
         "name": "example.com",
+        "type": "serve_static",
         "path": "/path/to/webroot",
+        "cert_path": "/path/to/certfile",
+        "key_path": "/path/to/keyfile"
+      }
+    ]
+  }
+]
+```
+
+### Reverse Proxy and Load Balancer
+
+```json
+[
+  {
+    "type": "https",
+    "listen": "[::]:443",
+    "hosts": [
+      {
+        "name": "example.com",
+        "type": "reverse_proxy",
+        "forward_urls": "http://s1.example.com:1234 http://s2.example.com",
         "cert_path": "/path/to/certfile",
         "key_path": "/path/to/keyfile"
       }
@@ -109,12 +132,14 @@ $ rm -rf $HOME/go/bin/goweb
     "hosts": [
       {
         "name": "example.com",
+        "type": "serve_static",
         "path": "/path/to/webroot",
         "cert_path": "/path/to/certfile",
         "key_path": "/path/to/keyfile"
       },
       {
         "name": "example.net",
+        "type": "serve_static",
         "path": "/path/to/webroot",
         "cert_path": "/path/to/certfile",
         "key_path": "/path/to/keyfile"
