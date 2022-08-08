@@ -21,10 +21,11 @@ import (
 )
 
 var servers []*Server
+var confPath *string
 
 func main() {
 
-	confPath := flag.String("c", "goweb.json", "configration file path")
+	confPath = flag.String("c", "goweb.json", "configration file path")
 	startAdmin := flag.Bool("admin", false, "start admin web interface")
 	flag.Parse()
 	confBytes, err := os.ReadFile(*confPath)

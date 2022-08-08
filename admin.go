@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 
 	"github.com/elgs/gostrgen"
 )
@@ -64,7 +66,7 @@ func StartAdmin() error {
 			return
 		}
 
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodPatch {
 			body, err := io.ReadAll(r.Body)
 			defer r.Body.Close()
 			if err != nil {
@@ -118,6 +120,31 @@ func StartAdmin() error {
 				}
 			}
 			servers = bodyData
+			fmt.Fprint(w, "{}")
+		} else if r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			defer r.Body.Close()
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				log.Println(err)
+				return
+			}
+			var formattedServersJSONBuffer bytes.Buffer
+			err = json.Indent(&formattedServersJSONBuffer, body, "", "  ")
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				log.Println(err)
+				return
+			}
+			err = os.WriteFile(*confPath, formattedServersJSONBuffer.Bytes(), 0644)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				log.Println(err)
+				return
+			}
 			fmt.Fprint(w, "{}")
 		} else if r.Method == http.MethodGet {
 			b, err := json.Marshal(servers)
