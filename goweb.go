@@ -9,22 +9,28 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path"
+	"runtime"
 	"strings"
 	"syscall"
 
 	"github.com/elgs/gostrgen"
 )
 
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	fmt.Println("v1")
+}
+
 var servers []*Server
 var confPath *string
 
 func main() {
-
 	confPath = flag.String("c", "goweb.json", "configration file path")
 	startAdmin := flag.Bool("admin", false, "start admin web interface")
 	flag.Parse()
@@ -72,8 +78,16 @@ func main() {
 }
 
 func (this *Server) Shutdown() error {
-	if this.server != nil {
-		return this.server.Shutdown(context.Background())
+	if this.Type == "https" || this.Type == "http" {
+		if this.httpServer != nil {
+			return this.httpServer.Shutdown(context.Background())
+		}
+	} else if this.Type == "tcp" {
+		this.tcpListening = false
+		if this.tcpListener != nil {
+			this.tcpListener.Close()
+			log.Printf("%v: Server closed %v", this.Type, this.Listen)
+		}
 	}
 	return nil
 }
@@ -204,7 +218,7 @@ func (this *Server) Start() error {
 			Handler:   mux,
 			TLSConfig: cfg,
 		}
-		this.server = &srv
+		this.httpServer = &srv
 
 		go func() {
 			err := srv.ListenAndServeTLS("", "")
@@ -212,6 +226,7 @@ func (this *Server) Start() error {
 				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
 			}
 		}()
+		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
 	} else if this.Type == "http" {
 		for _, host := range this.Hosts {
 			if host.RuntimeId == "" {
@@ -229,7 +244,7 @@ func (this *Server) Start() error {
 			Addr:    this.Listen,
 			Handler: mux,
 		}
-		this.server = &srv
+		this.httpServer = &srv
 
 		go func() {
 			err := srv.ListenAndServe()
@@ -237,8 +252,51 @@ func (this *Server) Start() error {
 				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
 			}
 		}()
+		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+	} else if this.Type == "tcp" {
+		enabledHosts := make([]*Host, 0, len(this.Hosts))
+		for _, host := range this.Hosts {
+			if !host.Disabled {
+				enabledHosts = append(enabledHosts, host)
+			}
+		}
+
+		listener, err := net.Listen("tcp", this.Listen)
+		this.tcpListener = listener
+		if err != nil {
+			log.Println(err)
+		}
+		log.Println(fmt.Sprintf("Listening on %v %v", this.Type, this.Listen))
+		this.tcpListening = true
+
+		go func() {
+			for {
+				if !this.tcpListening {
+					break
+				}
+				connLocal, err := this.tcpListener.Accept()
+				if err != nil {
+					// log.Println(err)
+					continue
+				}
+
+				go func() {
+					h := fnv.New32a()
+					h.Write([]byte(connLocal.RemoteAddr().String()))
+					enabledHost := enabledHosts[int(h.Sum32())%len(enabledHosts)]
+					connDst, err := net.Dial("tcp", enabledHost.Upstream)
+					if err != nil {
+						log.Println(err)
+						connLocal.Close()
+						return
+					}
+					go pipe(connLocal, connDst, 4096)
+					pipe(connDst, connLocal, 4096)
+				}()
+			}
+		}()
 	}
-	log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+
 	return nil
 }
 
@@ -257,4 +315,27 @@ func Hook(clean func()) {
 		}
 	}()
 	<-done
+}
+
+func pipe(connLocal net.Conn, connDst net.Conn, bufSize int) {
+	var buffer = make([]byte, bufSize)
+	for {
+		runtime.Gosched()
+		n, err := connLocal.Read(buffer)
+		if err != nil {
+			connLocal.Close()
+			connDst.Close()
+			log.Println(err)
+			break
+		}
+		if n > 0 {
+			_, err := connDst.Write(buffer[0:n])
+			if err != nil {
+				connLocal.Close()
+				connDst.Close()
+				log.Println(err)
+				break
+			}
+		}
+	}
 }

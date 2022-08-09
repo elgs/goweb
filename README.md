@@ -122,6 +122,27 @@ $ rm -rf $HOME/go/bin/goweb
 ]
 ```
 
+### TCP Proxy and Load Balancer
+
+```json
+[
+  {
+    "type": "tcp",
+    "listen": "[::]:1234",
+    "hosts": [
+      {
+        "name": "server1",
+        "upstream": "192.168.0.1"
+      },
+      {
+        "name": "server2",
+        "upstream": "192.168.0.2"
+      }
+    ]
+  }
+]
+```
+
 ### Multiple domains
 
 ```json
@@ -156,7 +177,7 @@ $ rm -rf $HOME/go/bin/goweb
 | Field    | Type   | Descriptions                                   | Examples                                  |
 | -------- | ------ | ---------------------------------------------- | ----------------------------------------- |
 | name     | string | Name of the server. Please make it unique      | `443`, `80`, `my_server`                  |
-| type     | string | `http` or `https`                              | `http`, `https`                           |
+| type     | string | `http`, `https` or `tcp`                       | `http`, `https`, `tcp`                    |
 | listen   | string | Host and port the server listens on.           | `127.0.0.1:80`, `0.0.0.0:443`, `[::]:443` |
 | disabled | bool   | True to disable the server, defaults to false. | `false`, `true`                           |
 | hosts    | array  | A list of hosts the server is hosting.         | See the host definition.                  |
@@ -170,6 +191,7 @@ $ rm -rf $HOME/go/bin/goweb
 | path                | string | Path to the web root.                                                                | `/path/to/webroot`                                   |
 | redirect_url        | string | The URL that will be 301 redirected to host type is set to `301_redirect`.           | `https://example.com`                                |
 | forward_urls        | string | Space separated list of upstream servers.                                            | `http://s1.example.com:1234` `http://s2.example.com` |
+| upstream            | string | Upstream tcp socket address.                                                         | `192.168.0.1:1234`                                   |
 | cert_path           | string | Path to the X.509 cert file.                                                         | `/path/to/certfile`                                  |
 | key_path            | string | Path to the X.509 key file.                                                          | `/path/to/keyfile`                                   |
 | disable_dir_listing | bool   | True to disable dir listing if `index.html` file is not present. Defaults to false.  | `false`, `true`                                      |

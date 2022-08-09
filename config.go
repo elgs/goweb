@@ -2,18 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 )
 
 type Server struct {
-	RuntimeId string  `json:"runtime_id"`
-	Name      string  `json:"name"`
-	Type      string  `json:"type"`
-	Listen    string  `json:"listen"`
-	Disabled  bool    `json:"disabled"`
-	Hosts     []*Host `json:"hosts"`
-	hostMap   map[string]*Host
-	server    *http.Server
+	RuntimeId    string  `json:"runtime_id"`
+	Name         string  `json:"name"`
+	Type         string  `json:"type"` // http, https, tcp
+	Listen       string  `json:"listen"`
+	Disabled     bool    `json:"disabled"`
+	Hosts        []*Host `json:"hosts"`
+	hostMap      map[string]*Host
+	httpServer   *http.Server
+	tcpListener  net.Listener
+	tcpListening bool
 }
 
 type Host struct {
@@ -25,6 +28,7 @@ type Host struct {
 	KeyPath           string `json:"key_path"`
 	ForwardURLs       string `json:"forward_urls"` // for type reverse_proxy space separated
 	RedirectURL       string `json:"redirect_url"` // for type 301_redirect
+	Upstream          string `json:"upstream"`     // for server type tcp
 	Disabled          bool   `json:"disabled"`
 	DisableDirListing bool   `json:"disable_dir_listing"`
 }
