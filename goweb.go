@@ -24,7 +24,7 @@ import (
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	fmt.Println("v1")
+	fmt.Println("v2")
 }
 
 var servers []*Server
