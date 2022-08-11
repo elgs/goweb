@@ -244,7 +244,7 @@ $ sudo systemctl status goweb
 
 ## Auto renew certificates with certbot
 
-Assuming `certbot` is installed.
+Assuming `certbot` is installed. I use the command `certbot certonly` to get a new cert/key pair.
 
 Create service unit file `/etc/systemd/system/certbot.service` with the following content:
 
