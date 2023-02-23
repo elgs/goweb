@@ -114,7 +114,7 @@ func (this *Server) Start() error {
 		if host == nil {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			fmt.Fprint(w, fmt.Sprintf(`{"err":"Host '%v' is disabled."}`, requestedHost))
+			fmt.Fprintf(w, `{"err":"Host '%v' is disabled."}`, requestedHost)
 			return
 		}
 		if host.Type == "301_redirect" {
@@ -209,7 +209,7 @@ func (this *Server) Start() error {
 			this.hostMap[host.Name] = host
 		}
 
-		cfg.BuildNameToCertificate()
+		// cfg.BuildNameToCertificate()
 
 		mux.HandleFunc("/", handler)
 
@@ -226,7 +226,7 @@ func (this *Server) Start() error {
 				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
 			}
 		}()
-		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
 	} else if this.Type == "http" {
 		for _, host := range this.Hosts {
 			if host.Name == "" {
@@ -252,7 +252,7 @@ func (this *Server) Start() error {
 				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
 			}
 		}()
-		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
 	} else if this.Type == "tcp" {
 		enabledHosts := make([]*Host, 0, len(this.Hosts))
 		for _, host := range this.Hosts {
@@ -266,7 +266,7 @@ func (this *Server) Start() error {
 		if err != nil {
 			log.Println(err)
 		}
-		log.Println(fmt.Sprintf("Listening on %v %v", this.Type, this.Listen))
+		log.Printf("Listening on %v %v\n", this.Type, this.Listen)
 		this.tcpListening = true
 
 		go func() {
