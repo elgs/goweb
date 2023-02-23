@@ -16,6 +16,7 @@ type Server struct {
 	httpServer   *http.Server
 	tcpListener  net.Listener
 	tcpListening bool
+	Status       string `json:"status"`
 }
 
 type Host struct {
@@ -29,6 +30,7 @@ type Host struct {
 	Upstream          string `json:"upstream"`     // for server type tcp
 	Disabled          bool   `json:"disabled"`
 	DisableDirListing bool   `json:"disable_dir_listing"`
+	Status            string `json:"status"`
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {

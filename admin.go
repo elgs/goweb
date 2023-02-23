@@ -41,6 +41,34 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 	return false
 }
 
+func LoadServersFromRequestBody(r *http.Request) ([]*Server, error) {
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var _servers []*Server
+	err = json.Unmarshal(body, &_servers)
+	if err != nil {
+		return nil, err
+	}
+	return _servers, nil
+}
+
+func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var _server Server
+	err = json.Unmarshal(body, &_server)
+	if err != nil {
+		return nil, err
+	}
+	return &_server, nil
+}
+
 func StartAdmin() error {
 	secret, _ := gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 	port := rand.Intn(10000) + 50000
@@ -64,16 +92,8 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPatch {
-			body, err := io.ReadAll(r.Body)
-			defer r.Body.Close()
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
-				return
-			}
-			var bodyData []*Server
-			err = json.Unmarshal(body, &bodyData)
+			// apply servers
+			_servers, err := LoadServersFromRequestBody(r)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprintf(w, `{"err":"%v"}`, err)
@@ -89,10 +109,10 @@ func StartAdmin() error {
 					return
 				}
 			}
-			for _, server := range bodyData {
+			for _, server := range _servers {
 				err := server.Start()
 				if err != nil {
-					for _, server := range bodyData {
+					for _, server := range _servers {
 						err := server.Shutdown()
 						if err != nil {
 							w.WriteHeader(http.StatusBadRequest)
@@ -116,9 +136,10 @@ func StartAdmin() error {
 					return
 				}
 			}
-			servers = bodyData
+			servers = _servers
 			fmt.Fprint(w, "{}")
 		} else if r.Method == http.MethodPost {
+			// save servers
 			body, err := io.ReadAll(r.Body)
 			defer r.Body.Close()
 			if err != nil {
@@ -144,9 +165,10 @@ func StartAdmin() error {
 			}
 			fmt.Fprint(w, "{}")
 		} else if r.Method == http.MethodGet {
+			// get servers
 			b, err := json.Marshal(servers)
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
+				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
@@ -161,16 +183,8 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPost {
-			body, err := io.ReadAll(r.Body)
-			defer r.Body.Close()
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
-				return
-			}
-			var bodyData *Server
-			err = json.Unmarshal(body, &bodyData)
+			// apply server
+			_server, err := LoadServerFromRequestBody(r)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprintf(w, `{"err":"%v"}`, err)
@@ -178,34 +192,30 @@ func StartAdmin() error {
 				return
 			}
 
-			if bodyData.Name == "" {
-				err := bodyData.Start()
-				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintf(w, `{"err":"%v"}`, err)
-					log.Println(err)
-					return
-				}
-				servers = append(servers, bodyData)
-			} else {
-				for serverIndex, server := range servers {
-					if server.Name == bodyData.Name {
-						err := server.Shutdown()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprintf(w, `{"err":"%v"}`, err)
-							log.Println(err)
-							return
-						}
-						err = bodyData.Start()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprintf(w, `{"err":"%v"}`, err)
-							log.Println(err)
-							return
-						}
-						servers[serverIndex] = bodyData
+			if _server.Name == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"err":"%v"}`, "Name is required")
+				log.Println("Name is required")
+				return
+			}
+			for serverIndex, server := range servers {
+				if server.Name == _server.Name {
+					err := server.Shutdown()
+					if err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"err":"%v"}`, err)
+						log.Println(err)
+						return
 					}
+					err = _server.Start()
+					if err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"err":"%v"}`, err)
+						log.Println(err)
+						return
+					}
+					servers[serverIndex] = _server
+					break
 				}
 			}
 			fmt.Fprint(w, "{}")
