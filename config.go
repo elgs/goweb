@@ -7,7 +7,6 @@ import (
 )
 
 type Server struct {
-	RuntimeId    string  `json:"runtime_id"`
 	Name         string  `json:"name"`
 	Type         string  `json:"type"` // http, https, tcp
 	Listen       string  `json:"listen"`
@@ -17,10 +16,10 @@ type Server struct {
 	httpServer   *http.Server
 	tcpListener  net.Listener
 	tcpListening bool
+	Status       string `json:"status"`
 }
 
 type Host struct {
-	RuntimeId         string `json:"runtime_id"`
 	Name              string `json:"name"`
 	Type              string `json:"type"` // serve_static, 301_redirect and reverse_proxy
 	Path              string `json:"path"` // for type serve_static
@@ -31,6 +30,7 @@ type Host struct {
 	Upstream          string `json:"upstream"`     // for server type tcp
 	Disabled          bool   `json:"disabled"`
 	DisableDirListing bool   `json:"disable_dir_listing"`
+	Status            string `json:"status"`
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {

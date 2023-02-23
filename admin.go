@@ -16,7 +16,7 @@ import (
 	"github.com/elgs/gostrgen"
 )
 
-var dev = false
+var dev = os.Getenv("env") == "dev"
 
 //go:embed webadmin
 var webadmin embed.FS
@@ -30,18 +30,43 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	token := r.URL.Query().Get("access_token")
-	if token == "" {
-		token = r.Header.Get("access_token")
-	}
+	token := r.Header.Get("authorization")
 	if token != secret {
 		w.WriteHeader(http.StatusUnauthorized)
 		err := errors.New("Invalid access token.")
-		fmt.Fprintln(w, fmt.Sprintf(`{"err":"%v"}`, err))
+		fmt.Fprintf(w, `{"err":"%v"}`, err)
 		log.Println(err)
 		return true
 	}
 	return false
+}
+
+func LoadServersFromRequestBody(r *http.Request) ([]*Server, error) {
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var _servers []*Server
+	err = json.Unmarshal(body, &_servers)
+	if err != nil {
+		return nil, err
+	}
+	return _servers, nil
+}
+
+func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var _server Server
+	err = json.Unmarshal(body, &_server)
+	if err != nil {
+		return nil, err
+	}
+	return &_server, nil
 }
 
 func StartAdmin() error {
@@ -67,19 +92,11 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPatch {
-			body, err := io.ReadAll(r.Body)
-			defer r.Body.Close()
+			// apply servers
+			_servers, err := LoadServersFromRequestBody(r)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
-				log.Println(err)
-				return
-			}
-			var bodyData []*Server
-			err = json.Unmarshal(body, &bodyData)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
@@ -87,19 +104,19 @@ func StartAdmin() error {
 				err := server.Shutdown()
 				if err != nil {
 					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+					fmt.Fprintf(w, `{"err":"%v"}`, err)
 					log.Println(err)
 					return
 				}
 			}
-			for _, server := range bodyData {
+			for _, server := range _servers {
 				err := server.Start()
 				if err != nil {
-					for _, server := range bodyData {
+					for _, server := range _servers {
 						err := server.Shutdown()
 						if err != nil {
 							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+							fmt.Fprintf(w, `{"err":"%v"}`, err)
 							log.Println(err)
 							return
 						}
@@ -108,25 +125,26 @@ func StartAdmin() error {
 						err := server.Shutdown()
 						if err != nil {
 							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+							fmt.Fprintf(w, `{"err":"%v"}`, err)
 							log.Println(err)
 							return
 						}
 					}
 					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+					fmt.Fprintf(w, `{"err":"%v"}`, err)
 					log.Println(err)
 					return
 				}
 			}
-			servers = bodyData
+			servers = _servers
 			fmt.Fprint(w, "{}")
 		} else if r.Method == http.MethodPost {
+			// save servers
 			body, err := io.ReadAll(r.Body)
 			defer r.Body.Close()
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
@@ -134,23 +152,24 @@ func StartAdmin() error {
 			err = json.Indent(&formattedServersJSONBuffer, body, "", "  ")
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
 			err = os.WriteFile(*confPath, formattedServersJSONBuffer.Bytes(), 0644)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
 			fmt.Fprint(w, "{}")
 		} else if r.Method == http.MethodGet {
+			// get servers
 			b, err := json.Marshal(servers)
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintln(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
@@ -164,51 +183,39 @@ func StartAdmin() error {
 		}
 
 		if r.Method == http.MethodPost {
-			body, err := io.ReadAll(r.Body)
-			defer r.Body.Close()
+			// apply server
+			_server, err := LoadServerFromRequestBody(r)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
-				log.Println(err)
-				return
-			}
-			var bodyData *Server
-			err = json.Unmarshal(body, &bodyData)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
+				fmt.Fprintf(w, `{"err":"%v"}`, err)
 				log.Println(err)
 				return
 			}
 
-			if bodyData.RuntimeId == "" {
-				err := bodyData.Start()
-				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
-					log.Println(err)
-					return
-				}
-				servers = append(servers, bodyData)
-			} else {
-				for serverIndex, server := range servers {
-					if server.RuntimeId == bodyData.RuntimeId {
-						err := server.Shutdown()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
-							log.Println(err)
-							return
-						}
-						err = bodyData.Start()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprint(w, fmt.Sprintf(`{"err":"%v"}`, err))
-							log.Println(err)
-							return
-						}
-						servers[serverIndex] = bodyData
+			if _server.Name == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"err":"%v"}`, "Name is required")
+				log.Println("Name is required")
+				return
+			}
+			for serverIndex, server := range servers {
+				if server.Name == _server.Name {
+					err := server.Shutdown()
+					if err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"err":"%v"}`, err)
+						log.Println(err)
+						return
 					}
+					err = _server.Start()
+					if err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"err":"%v"}`, err)
+						log.Println(err)
+						return
+					}
+					servers[serverIndex] = _server
+					break
 				}
 			}
 			fmt.Fprint(w, "{}")
@@ -221,7 +228,7 @@ func StartAdmin() error {
 			log.Fatal(err)
 		}
 	}()
-	fmt.Println(fmt.Sprintf("Web admin url: http://%v/admin", listen))
-	fmt.Println(fmt.Sprintf("Access token: %v", secret))
+	log.Printf("Web admin url: http://%v/admin\n", listen)
+	log.Printf("Access token: %v\n", secret)
 	return nil
 }

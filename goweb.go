@@ -18,13 +18,11 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-
-	"github.com/elgs/gostrgen"
 )
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	fmt.Println("v3")
+	fmt.Println("v4")
 }
 
 var servers []*Server
@@ -52,7 +50,7 @@ func main() {
 	for _, server := range servers {
 		err := server.Start()
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
 		}
 	}
 
@@ -101,8 +99,9 @@ func indexFileNotExists(dir string) bool {
 }
 
 func (this *Server) Start() error {
-	if this.RuntimeId == "" {
-		this.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+	if this.Name == "" {
+		this.Status = "Server name is required"
+		return errors.New(this.Status)
 	}
 	if this.Disabled {
 		return nil
@@ -114,7 +113,13 @@ func (this *Server) Start() error {
 		if host == nil {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			fmt.Fprint(w, fmt.Sprintf(`{"err":"Host '%v' is disabled."}`, requestedHost))
+			fmt.Fprintf(w, `{"err":"Host '%v' not found"}`, requestedHost)
+			return
+		}
+		if host.Disabled {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			fmt.Fprintf(w, `{"err":"Host '%v' is disabled"}`, requestedHost)
 			return
 		}
 		if host.Type == "301_redirect" {
@@ -123,7 +128,7 @@ func (this *Server) Start() error {
 			indexPath := path.Join(host.Path, r.URL.Path)
 			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(indexPath) {
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, "404 page not found")
+				fmt.Fprintf(w, `{"err":"404 page not found"}`)
 				return
 			}
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
@@ -195,21 +200,20 @@ func (this *Server) Start() error {
 		cfg := &tls.Config{}
 
 		for _, host := range this.Hosts {
-			if host.RuntimeId == "" {
-				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
-			}
-			if host.Disabled {
-				continue
+			if host.Name == "" {
+				host.Status = fmt.Sprintf("Host name is required, server: %v, %v", this.Name, this.Listen)
+				return errors.New(host.Status)
 			}
 			keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 			if err != nil {
-				return fmt.Errorf("%v for host: %v, server: %v, %v", err, host.Name, this.Name, this.Listen)
+				host.Status = fmt.Sprintf("%v for host: %v, server: %v, %v", err, host.Name, this.Name, this.Listen)
+				return errors.New(host.Status)
 			}
 			cfg.Certificates = append(cfg.Certificates, keyPair)
 			this.hostMap[host.Name] = host
 		}
 
-		cfg.BuildNameToCertificate()
+		// cfg.BuildNameToCertificate()
 
 		mux.HandleFunc("/", handler)
 
@@ -226,14 +230,12 @@ func (this *Server) Start() error {
 				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
 			}
 		}()
-		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
 	} else if this.Type == "http" {
 		for _, host := range this.Hosts {
-			if host.RuntimeId == "" {
-				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
-			}
-			if host.Disabled {
-				continue
+			if host.Name == "" {
+				host.Status = fmt.Sprintf("Host name is required, server: %v, %v", this.Name, this.Listen)
+				return errors.New(host.Status)
 			}
 			this.hostMap[host.Name] = host
 		}
@@ -249,10 +251,11 @@ func (this *Server) Start() error {
 		go func() {
 			err := srv.ListenAndServe()
 			if err != nil {
-				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
+				this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
+				log.Println(this.Status)
 			}
 		}()
-		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
+		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
 	} else if this.Type == "tcp" {
 		enabledHosts := make([]*Host, 0, len(this.Hosts))
 		for _, host := range this.Hosts {
@@ -264,9 +267,10 @@ func (this *Server) Start() error {
 		listener, err := net.Listen("tcp", this.Listen)
 		this.tcpListener = listener
 		if err != nil {
-			log.Println(err)
+			this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
+			log.Println(this.Status)
 		}
-		log.Println(fmt.Sprintf("Listening on %v %v", this.Type, this.Listen))
+		log.Printf("Listening on %v %v\n", this.Type, this.Listen)
 		this.tcpListening = true
 
 		go func() {
@@ -306,13 +310,11 @@ func Hook(clean func()) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		select {
-		case <-sigs:
-			if clean != nil {
-				clean()
-			}
-			done <- true
+		<-sigs
+		if clean != nil {
+			clean()
 		}
+		done <- true
 	}()
 	<-done
 }
