@@ -198,8 +198,11 @@ func StartAdmin() error {
 				log.Println("Name is required")
 				return
 			}
+
+			newServer := true
 			for serverIndex, server := range servers {
 				if server.Name == _server.Name {
+					newServer = false
 					err := server.Shutdown()
 					if err != nil {
 						w.WriteHeader(http.StatusBadRequest)
@@ -217,6 +220,16 @@ func StartAdmin() error {
 					servers[serverIndex] = _server
 					break
 				}
+			}
+			if newServer {
+				err := _server.Start()
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					fmt.Fprintf(w, `{"err":"%v"}`, err)
+					log.Println(err)
+					return
+				}
+				servers = append(servers, _server)
 			}
 			fmt.Fprint(w, "{}")
 		}
