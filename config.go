@@ -7,7 +7,6 @@ import (
 )
 
 type Server struct {
-	RuntimeId    string  `json:"runtime_id"`
 	Name         string  `json:"name"`
 	Type         string  `json:"type"` // http, https, tcp
 	Listen       string  `json:"listen"`
@@ -20,7 +19,6 @@ type Server struct {
 }
 
 type Host struct {
-	RuntimeId         string `json:"runtime_id"`
 	Name              string `json:"name"`
 	Type              string `json:"type"` // serve_static, 301_redirect and reverse_proxy
 	Path              string `json:"path"` // for type serve_static

@@ -101,8 +101,8 @@ func indexFileNotExists(dir string) bool {
 }
 
 func (this *Server) Start() error {
-	if this.RuntimeId == "" {
-		this.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+	if this.Name == "" {
+		this.Name, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
 	}
 	if this.Disabled {
 		return nil
@@ -195,8 +195,8 @@ func (this *Server) Start() error {
 		cfg := &tls.Config{}
 
 		for _, host := range this.Hosts {
-			if host.RuntimeId == "" {
-				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+			if host.Name == "" {
+				return fmt.Errorf("Host name is required.")
 			}
 			if host.Disabled {
 				continue
@@ -229,8 +229,8 @@ func (this *Server) Start() error {
 		log.Println(fmt.Sprintf("Listening on %v://%v/", this.Type, this.Listen))
 	} else if this.Type == "http" {
 		for _, host := range this.Hosts {
-			if host.RuntimeId == "" {
-				host.RuntimeId, _ = gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
+			if host.Name == "" {
+				return fmt.Errorf("Host name is required.")
 			}
 			if host.Disabled {
 				continue
@@ -306,13 +306,11 @@ func Hook(clean func()) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		select {
-		case <-sigs:
-			if clean != nil {
-				clean()
-			}
-			done <- true
+		<-sigs
+		if clean != nil {
+			clean()
 		}
+		done <- true
 	}()
 	<-done
 }

@@ -181,7 +181,7 @@ func StartAdmin() error {
 				return
 			}
 
-			if bodyData.RuntimeId == "" {
+			if bodyData.Name == "" {
 				err := bodyData.Start()
 				if err != nil {
 					w.WriteHeader(http.StatusBadRequest)
@@ -192,7 +192,7 @@ func StartAdmin() error {
 				servers = append(servers, bodyData)
 			} else {
 				for serverIndex, server := range servers {
-					if server.RuntimeId == bodyData.RuntimeId {
+					if server.Name == bodyData.Name {
 						err := server.Shutdown()
 						if err != nil {
 							w.WriteHeader(http.StatusBadRequest)
