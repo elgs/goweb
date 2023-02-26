@@ -107,18 +107,17 @@ func (this *Server) Start() error {
 		return nil
 	}
 	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Server", "goweb")
 		requestedHost := strings.Split(r.Host, ":")[0]
 		host := this.hostMap[requestedHost]
 		if host == nil {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			fmt.Fprintf(w, `{"err":"Host '%v' not found"}`, requestedHost)
 			return
 		}
 		if host.Disabled {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			fmt.Fprintf(w, `{"err":"Host '%v' is disabled"}`, requestedHost)
 			return
 		}
