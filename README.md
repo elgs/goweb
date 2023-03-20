@@ -254,7 +254,9 @@ Description=Let's Encrypt renewal
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/certbot renew --quiet --agree-tos --deploy-hook "systemctl reload goweb"
+ExecStartPre=systemctl stop goweb
+ExecStart=/usr/bin/certbot renew --agree-tos
+ExecStartPost=systemctl start goweb
 ```
 
 Create timer unit file `/etc/systemd/system/certbot.timer` with the following content:
