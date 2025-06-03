@@ -58,6 +58,7 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
+    "name": "http-80",
     "type": "http",
     "listen": "[::]:80",
     "hosts": [
@@ -76,6 +77,7 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
+    "name": "http-80",
     "type": "http",
     "listen": "[::]:80",
     "hosts": [
@@ -87,6 +89,7 @@ $ rm -rf $HOME/go/bin/goweb
     ]
   },
   {
+    "name": "http-443",
     "type": "https",
     "listen": "[::]:443",
     "hosts": [
@@ -107,6 +110,7 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
+    "name": "http-443",
     "type": "https",
     "listen": "[::]:443",
     "hosts": [
@@ -127,6 +131,7 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
+    "name": "tcp-1234",
     "type": "tcp",
     "listen": "[::]:1234",
     "hosts": [
@@ -148,6 +153,7 @@ $ rm -rf $HOME/go/bin/goweb
 ```json
 [
   {
+    "name": "https-443",
     "type": "https",
     "listen": "[::]:443",
     "hosts": [
