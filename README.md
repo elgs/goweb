@@ -244,7 +244,7 @@ After=network.target
 Environment="GOWEB_ADMIN_TOKEN=gowebadmin"
 Environment="GOWEB_ADMIN_HOST=localhost"
 Environment="GOWEB_ADMIN_PORT=13579"
-ExecStart=/home/elgs/go/bin/goweb -c /home/elgs/goweb.json
+ExecStart=/usr/bin/goweb -c /home/elgs/goweb.json
 
 [Install]
 WantedBy=default.target
@@ -254,11 +254,11 @@ Alternatively, you can use an environment file:
 
 ```
 [Service]
-EnvironmentFile=/etc/default/goweb
-ExecStart=/home/elgs/go/bin/goweb -c /home/elgs/goweb.json
+EnvironmentFile=/etc/default/goweb # or wherever you like
+ExecStart=/usr/bin/goweb -c /home/elgs/goweb.json
 ```
 
-And in `/etc/default/goweb`:
+And in `/etc/default/goweb`: or wherever you like
 
 ```
 GOWEB_ADMIN_TOKEN=gowebadmin
