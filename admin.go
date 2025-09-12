@@ -67,9 +67,6 @@ func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
 }
 
 func StartAdmin() error {
-	secret := getEnv("GOWEB_ADMIN_TOKEN", "gowebadmin")
-	host := getEnv("GOWEB_ADMIN_HOST", "localhost")
-	port := getEnv("GOWEB_ADMIN_PORT", "13579")
 	listen := fmt.Sprintf("%v:%v", host, port)
 
 	mux := http.NewServeMux()

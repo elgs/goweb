@@ -20,6 +20,12 @@ import (
 	"syscall"
 )
 
+const version = "5"
+
+var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
+var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
+var port = getEnv("GOWEB_ADMIN_PORT", "13579")
+
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	fmt.Println("v5")
@@ -29,12 +35,16 @@ var servers []*Server
 var confPath *string
 
 func main() {
+	v := flag.Bool("v", false, "prints version")
 	confPath = flag.String("c", "goweb.json", "configration file path")
-	startAdmin := flag.Bool("admin", false, "start admin web interface")
 	flag.Parse()
+	if *v {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 	confBytes, err := os.ReadFile(*confPath)
 	if err != nil {
-		if *startAdmin {
+		if secret == "" {
 			servers = []*Server{}
 			log.Println(err)
 		} else {
@@ -54,11 +64,7 @@ func main() {
 		}
 	}
 
-	if dev {
-		*startAdmin = true
-	}
-
-	if *startAdmin {
+	if secret != "" {
 		err = StartAdmin()
 		if err != nil {
 			log.Fatalln(err)

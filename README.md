@@ -36,14 +36,43 @@ $ sudo goweb -c /path/to/config.json
 
 The goweb admin is a web interface that will help you to generate config json and test server configurations.
 
-```
-$ goweb -admin
-2022/08/06 03:05:17 Listening on https://[::]:443/
-Web admin url: http://[::]:54666/admin
-Access token: pj8s1jy7n5ep0l9j9rwdk70a7j6ppmf7
-```
+#### Admin Environment Variables
 
-A config file will be optional to run goweb in admin mode.
+You can configure the web admin interface using the following environment variables:
+
+- `GOWEB_ADMIN_TOKEN`: The access token required to use the admin interface. Example:
+  ```sh
+  export GOWEB_ADMIN_TOKEN="gowebadmin"
+  ```
+- `GOWEB_ADMIN_HOST`: The host address the admin interface binds to. Default is `localhost`.
+  ```sh
+  export GOWEB_ADMIN_HOST="localhost"
+  ```
+- `GOWEB_ADMIN_PORT`: The port the admin interface listens on. Default is `13579`.
+  ```sh
+  export GOWEB_ADMIN_PORT="13579"
+  ```
+
+Please note the admin interface is only accessible if `GOWEB_ADMIN_TOKEN` is set. The admin interface is in http only. You can use a reverse proxy in front of it to enable https.
+
+```json
+[
+  {
+    "name": "http-443",
+    "type": "https",
+    "listen": "[::]:443",
+    "hosts": [
+      {
+        "name": "example.com",
+        "type": "reverse_proxy",
+        "forward_urls": "http://localhost:13579",
+        "cert_path": "/path/to/certfile",
+        "key_path": "/path/to/keyfile"
+      }
+    ]
+  }
+]
+```
 
 ## Uninstall
 
@@ -205,17 +234,36 @@ $ rm -rf $HOME/go/bin/goweb
 
 ## Auto start with systemd
 
-Create service unit file `/etc/systemd/system/goweb.service` with the following content:
+Create service unit file `/etc/systemd/system/goweb.service` with the following content. You can set environment variables for the admin interface (such as GOWEB_ADMIN_TOKEN, GOWEB_ADMIN_HOST, and GOWEB_ADMIN_PORT) using the `Environment` or `EnvironmentFile` directives:
 
 ```
 [Unit]
 After=network.target
 
 [Service]
+Environment="GOWEB_ADMIN_TOKEN=gowebadmin"
+Environment="GOWEB_ADMIN_HOST=localhost"
+Environment="GOWEB_ADMIN_PORT=13579"
 ExecStart=/home/elgs/go/bin/goweb -c /home/elgs/goweb.json
 
 [Install]
 WantedBy=default.target
+```
+
+Alternatively, you can use an environment file:
+
+```
+[Service]
+EnvironmentFile=/etc/default/goweb
+ExecStart=/home/elgs/go/bin/goweb -c /home/elgs/goweb.json
+```
+
+And in `/etc/default/goweb`:
+
+```
+GOWEB_ADMIN_TOKEN=gowebadmin
+GOWEB_ADMIN_HOST=localhost
+GOWEB_ADMIN_PORT=13579
 ```
 
 Enable the service:
