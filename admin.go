@@ -75,7 +75,8 @@ func StartAdmin() error {
 		log.Fatal(err)
 	}
 
-	mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
+	// mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
+	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
 		if CheckAccessToken(secret, w, r) {
@@ -233,6 +234,6 @@ func StartAdmin() error {
 			log.Fatal(err)
 		}
 	}()
-	log.Printf("Web admin url: http://%v/admin\n", listen)
+	log.Printf("Web admin url: http://%v/\n", listen)
 	return nil
 }

@@ -73,19 +73,22 @@
                      </select>
                   </div>
                   <!-- webroot path -->
-                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
+                  <div class="input-set"
+                     lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
                      <div class="input-label">Web Root Path:</div>
                      <input type="text" class="ppwui input small" placeholder="/path/to/webroot" lw-model="host.path"
                         lw-on:input="updateServerJSON(server)">
                   </div>
                   <!-- redirect url -->
-                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='301_redirect'">
+                  <div class="input-set"
+                     lw-if="(server.type==='http' || server.type==='https') && host.type==='301_redirect'">
                      <div class="input-label">Redirect URL:</div>
                      <input type="text" class="ppwui input small" placeholder="https://example.com"
                         lw-model="host.redirect_url" lw-on:input="updateServerJSON(server)">
                   </div>
                   <!-- forward urls -->
-                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='reverse_proxy'">
+                  <div class="input-set"
+                     lw-if="(server.type==='http' || server.type==='https') && host.type==='reverse_proxy'">
                      <div class="input-label">Forward URLs:</div>
                      <input type="text" class="ppwui input small" placeholder="http://server1 http://server2"
                         lw-model="host.forward_urls" lw-on:input="updateServerJSON(server)">
@@ -99,17 +102,18 @@
                   <!-- key path -->
                   <div class="input-set" lw-if="server.type==='https'">
                      <div class="input-label">Key Path:</div>
-                     <input type="text" class="ppwui input small" placeholder="/path/to/keyfile" lw-model="host.key_path"
-                        lw-on:input="updateServerJSON(server)">
+                     <input type="text" class="ppwui input small" placeholder="/path/to/keyfile"
+                        lw-model="host.key_path" lw-on:input="updateServerJSON(server)">
                   </div>
                   <!-- cert path -->
                   <div class="input-set" lw-if="server.type==='https'">
                      <div class="input-label">Cert Path:</div>
-                     <input type="text" class="ppwui input small" placeholder="/path/to/certfile" lw-model="host.cert_path"
-                        lw-on:input="updateServerJSON(server)">
+                     <input type="text" class="ppwui input small" placeholder="/path/to/certfile"
+                        lw-model="host.cert_path" lw-on:input="updateServerJSON(server)">
                   </div>
                   <!-- disable dir listing -->
-                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
+                  <div class="input-set"
+                     lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
                      <div class="input-label">Disable Listing:</div>
                      <input type="checkbox" placeholder="Disable Dir Listing" lw-model="host.disable_dir_listing"
                         lw-on:input="updateServerJSON(server)">
@@ -209,7 +213,7 @@
 --------------------------------------- -->
 <div class="login-container" lw-if="leanweb.urlHashPath.startsWith('#/login')">
    <div class="token-input-set">
-      <input type="text" class="ppwui input" placeholder="Please enter access token" lw-model="loginToken"
+      <input type="password" class="ppwui input" placeholder="Please enter access token" lw-model="loginToken"
          lw-on:keyup="loginByEnter($event)">
       <button class="ppwui button primary" lw-on:click="login()">Login</button>
    </div>
