@@ -20,7 +20,7 @@ import (
 	"syscall"
 )
 
-const version = "5"
+const version = "6"
 
 var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
 var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
@@ -28,7 +28,6 @@ var port = getEnv("GOWEB_ADMIN_PORT", "13579")
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	fmt.Println("v5")
 }
 
 var servers []*Server
