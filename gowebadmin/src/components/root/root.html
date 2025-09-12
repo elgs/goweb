@@ -1,0 +1,216 @@
+<div class="server-container" lw-if="!leanweb.urlHashPath.startsWith('#/login')">
+   <!-- ----------------------------------------------------------------------
+   -   _______   ______    ______   __     __  ______    ______    _______   -
+   -  /       | /      \  /      \ /  \   /  |/      \  /      \  /       |  -
+   - /$$$$$$$/ /$$$$$$  |/$$$$$$  |$$  \ /$$//$$$$$$  |/$$$$$$  |/$$$$$$$/   -
+   - $$      \ $$    $$ |$$ |  $$/  $$  /$$/ $$    $$ |$$ |  $$/ $$      \   -
+   -  $$$$$$  |$$$$$$$$/ $$ |        $$ $$/  $$$$$$$$/ $$ |       $$$$$$  |  -
+   - /     $$/ $$       |$$ |         $$$/   $$       |$$ |      /     $$/   -
+   - $$$$$$$/   $$$$$$$/ $$/           $/     $$$$$$$/ $$/       $$$$$$$/    -
+   -                                                                         -
+   ----------------------------------------------------------------------- -->
+   <div class="servers">
+      <div class="server-block ppwui card" lw-for="server in servers">
+         <!-- server name -->
+         <div class="input-set">
+            <span class="input-label">Server Name:</span>
+            <input type="text" class="ppwui input small" placeholder="Server Name" lw-model="server.name"
+               lw-on:input="updateServerJSON(server)">
+         </div>
+         <!-- listen on -->
+         <div class="input-set">
+            <div class="input-label">Listen on:</div>
+            <input type="text" class="ppwui input small" placeholder="[::]:1234" lw-model="server.listen"
+               lw-on:input="updateServerJSON(server)">
+         </div>
+         <!-- server type -->
+         <div class="input-set">
+            <div class="input-label">Server Type:</div>
+            <select lw-model="server.type" lw-on:input="update();updateServerJSON(server)">
+               <option>https</option>
+               <option>http</option>
+               <option>tcp</option>
+            </select>
+         </div>
+         <!-- disabled -->
+         <div class="input-set">
+            <div class="input-label">Disabled:</div>
+            <input type="checkbox" placeholder="Disabled" lw-model="server.disabled"
+               lw-on:input="updateServerJSON(server)">
+         </div>
+
+         <!-- -------------------------------------------------
+         -  __                              __                -
+         - /  |                            /  |               -
+         - $$ |____    ______    _______  _$$ |_    _______   -
+         - $$      \  /      \  /       |/ $$   |  /       |  -
+         - $$$$$$$  |/$$$$$$  |/$$$$$$$/ $$$$$$/  /$$$$$$$/   -
+         - $$ |  $$ |$$ |  $$ |$$      \   $$ | __$$      \   -
+         - $$ |  $$ |$$ \__$$ | $$$$$$  |  $$ |/  |$$$$$$  |  -
+         - $$ |  $$ |$$    $$/ /     $$/   $$  $$//     $$/   -
+         - $$/   $$/  $$$$$$/  $$$$$$$/     $$$$/ $$$$$$$/    -
+         -                                                    -
+         -------------------------------------------------- -->
+         <div class="host-block ppwui card" lw-for="host in server.hosts">
+            <div class="host-header" lw-on:click="toggleHostHeader(host)" lw-class:active="host.uiActive">
+               <span class="host-header-label" lw>host.name</span>
+            </div>
+            <div class="host-panel">
+               <div class="host-panel-container">
+                  <!-- host name -->
+                  <div class="input-set">
+                     <div class="input-label">Host Name:</div>
+                     <input type="text" class="ppwui input small" placeholder="example.com" lw-model="host.name"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- host type -->
+                  <div class="input-set" lw-if="server.type==='http' || server.type==='https'">
+                     <div class="input-label">Host Type:</div>
+                     <select lw-model="host.type" lw-on:input="update();updateServerJSON(server)">
+                        <option>serve_static</option>
+                        <option>301_redirect</option>
+                        <option>reverse_proxy</option>
+                     </select>
+                  </div>
+                  <!-- webroot path -->
+                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
+                     <div class="input-label">Web Root Path:</div>
+                     <input type="text" class="ppwui input small" placeholder="/path/to/webroot" lw-model="host.path"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- redirect url -->
+                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='301_redirect'">
+                     <div class="input-label">Redirect URL:</div>
+                     <input type="text" class="ppwui input small" placeholder="https://example.com"
+                        lw-model="host.redirect_url" lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- forward urls -->
+                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='reverse_proxy'">
+                     <div class="input-label">Forward URLs:</div>
+                     <input type="text" class="ppwui input small" placeholder="http://server1 http://server2"
+                        lw-model="host.forward_urls" lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- upstream address -->
+                  <div class="input-set" lw-if="server.type==='tcp'">
+                     <div class="input-label">Upstream:</div>
+                     <input type="text" class="ppwui input small" placeholder="[::]:1234" lw-model="host.upstream"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- key path -->
+                  <div class="input-set" lw-if="server.type==='https'">
+                     <div class="input-label">Key Path:</div>
+                     <input type="text" class="ppwui input small" placeholder="/path/to/keyfile" lw-model="host.key_path"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- cert path -->
+                  <div class="input-set" lw-if="server.type==='https'">
+                     <div class="input-label">Cert Path:</div>
+                     <input type="text" class="ppwui input small" placeholder="/path/to/certfile" lw-model="host.cert_path"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- disable dir listing -->
+                  <div class="input-set" lw-if="(server.type==='http' || server.type==='https') && host.type==='serve_static'">
+                     <div class="input-label">Disable Listing:</div>
+                     <input type="checkbox" placeholder="Disable Dir Listing" lw-model="host.disable_dir_listing"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- disabled -->
+                  <div class="input-set">
+                     <div class="input-label">Disabled:</div>
+                     <input type="checkbox" placeholder="Disabled" lw-model="host.disabled"
+                        lw-on:input="updateServerJSON(server)">
+                  </div>
+                  <!-- ------------------------------------------------------------------------------------------------------------------
+                  -  __                              __            __                    __      __                                     -
+                  - /  |                            /  |          /  |                  /  |    /  |                                    -
+                  - $$ |____    ______    _______  _$$ |_         $$ |____   __    __  _$$ |_  _$$ |_     ______   _______    _______   -
+                  - $$      \  /      \  /       |/ $$   |        $$      \ /  |  /  |/ $$   |/ $$   |   /      \ /       \  /       |  -
+                  - $$$$$$$  |/$$$$$$  |/$$$$$$$/ $$$$$$/         $$$$$$$  |$$ |  $$ |$$$$$$/ $$$$$$/   /$$$$$$  |$$$$$$$  |/$$$$$$$/   -
+                  - $$ |  $$ |$$ |  $$ |$$      \   $$ | __       $$ |  $$ |$$ |  $$ |  $$ | __ $$ | __ $$ |  $$ |$$ |  $$ |$$      \   -
+                  - $$ |  $$ |$$ \__$$ | $$$$$$  |  $$ |/  |      $$ |__$$ |$$ \__$$ |  $$ |/  |$$ |/  |$$ \__$$ |$$ |  $$ | $$$$$$  |  -
+                  - $$ |  $$ |$$    $$/ /     $$/   $$  $$/       $$    $$/ $$    $$/   $$  $$/ $$  $$/ $$    $$/ $$ |  $$ |/     $$/   -
+                  - $$/   $$/  $$$$$$/  $$$$$$$/     $$$$/        $$$$$$$/   $$$$$$/     $$$$/   $$$$/   $$$$$$/  $$/   $$/ $$$$$$$/    -
+                  -                                                                                                                     -
+                  ------------------------------------------------------------------------------------------------------------------- -->
+                  <div class="button-block">
+                     <button lw-on:click="deleteHost(host, server)" class="ppwui button danger small">Delete</button>
+                     <button lw-on:click="openHost(host, server)" class="ppwui button small">Open Host</button>
+                  </div>
+               </div>
+            </div>
+         </div>
+         <!-- --------------------------------------------------------------------------------------------------------------------------------------
+         -                                                                    __                    __      __                                     -
+         -                                                                   /  |                  /  |    /  |                                    -
+         -   _______   ______    ______   __     __  ______    ______        $$ |____   __    __  _$$ |_  _$$ |_     ______   _______    _______   -
+         -  /       | /      \  /      \ /  \   /  |/      \  /      \       $$      \ /  |  /  |/ $$   |/ $$   |   /      \ /       \  /       |  -
+         - /$$$$$$$/ /$$$$$$  |/$$$$$$  |$$  \ /$$//$$$$$$  |/$$$$$$  |      $$$$$$$  |$$ |  $$ |$$$$$$/ $$$$$$/   /$$$$$$  |$$$$$$$  |/$$$$$$$/   -
+         - $$      \ $$    $$ |$$ |  $$/  $$  /$$/ $$    $$ |$$ |  $$/       $$ |  $$ |$$ |  $$ |  $$ | __ $$ | __ $$ |  $$ |$$ |  $$ |$$      \   -
+         -  $$$$$$  |$$$$$$$$/ $$ |        $$ $$/  $$$$$$$$/ $$ |            $$ |__$$ |$$ \__$$ |  $$ |/  |$$ |/  |$$ \__$$ |$$ |  $$ | $$$$$$  |  -
+         - /     $$/ $$       |$$ |         $$$/   $$       |$$ |            $$    $$/ $$    $$/   $$  $$/ $$  $$/ $$    $$/ $$ |  $$ |/     $$/   -
+         - $$$$$$$/   $$$$$$$/ $$/           $/     $$$$$$$/ $$/             $$$$$$$/   $$$$$$/     $$$$/   $$$$/   $$$$$$/  $$/   $$/ $$$$$$$/    -
+         -                                                                                                                                         -
+         --------------------------------------------------------------------------------------------------------------------------------------- -->
+         <div class="button-block">
+            <button lw-on:click="newHost(server)" class="ppwui button primary small">New Host</button>
+            <button lw-on:click="applyServer(server)" class="ppwui button small warning"
+               lw-class:loading="server.applyingServer">Apply</button>
+            <button lw-on:click="deleteServer(server)" class="ppwui button danger small">Delete</button>
+            <button lw-on:click="toggleServerJSON(server)" class="ppwui button small">JSON</button>
+         </div>
+
+         <div class="ppwui card server-json-panel" lw-if="server.showConfigEditor">
+            <div class="server-json"></div>
+         </div>
+      </div>
+
+      <!-- ------------------------------------------------------------------------------------------------------------------------------------------------
+      -                                                                              __                    __      __                                     -
+      -                                                                             /  |                  /  |    /  |                                    -
+      -   _______   ______    ______   __     __  ______    ______    _______       $$ |____   __    __  _$$ |_  _$$ |_     ______   _______    _______   -
+      -  /       | /      \  /      \ /  \   /  |/      \  /      \  /       |      $$      \ /  |  /  |/ $$   |/ $$   |   /      \ /       \  /       |  -
+      - /$$$$$$$/ /$$$$$$  |/$$$$$$  |$$  \ /$$//$$$$$$  |/$$$$$$  |/$$$$$$$/       $$$$$$$  |$$ |  $$ |$$$$$$/ $$$$$$/   /$$$$$$  |$$$$$$$  |/$$$$$$$/   -
+      - $$      \ $$    $$ |$$ |  $$/  $$  /$$/ $$    $$ |$$ |  $$/ $$      \       $$ |  $$ |$$ |  $$ |  $$ | __ $$ | __ $$ |  $$ |$$ |  $$ |$$      \   -
+      -  $$$$$$  |$$$$$$$$/ $$ |        $$ $$/  $$$$$$$$/ $$ |       $$$$$$  |      $$ |__$$ |$$ \__$$ |  $$ |/  |$$ |/  |$$ \__$$ |$$ |  $$ | $$$$$$  |  -
+      - /     $$/ $$       |$$ |         $$$/   $$       |$$ |      /     $$/       $$    $$/ $$    $$/   $$  $$/ $$  $$/ $$    $$/ $$ |  $$ |/     $$/   -
+      - $$$$$$$/   $$$$$$$/ $$/           $/     $$$$$$$/ $$/       $$$$$$$/        $$$$$$$/   $$$$$$/     $$$$/   $$$$/   $$$$$$/  $$/   $$/ $$$$$$$/    -
+      -                                                                                                                                                   -
+      ------------------------------------------------------------------------------------------------------------------------------------------------- -->
+      <div class="button-block">
+         <button lw-on:click="newServer()" class="ppwui button primary small">New Server</button>
+         <button lw-on:click="applyServers()" class="ppwui button small warning"
+            lw-class:loading="applyingServers">Apply</button>
+         <button lw-on:click="saveServers()" class="ppwui button small warning"
+            lw-class:loading="savingServers">Save</button>
+         <button lw-on:click="toggleServersJSON()" class="ppwui button small">JSON</button>
+         <button lw-on:click="logout()" class="ppwui button small">Logout</button>
+      </div>
+
+      <div class="ppwui card servers-json-panel" lw-if="showConfigEditor">
+         <div class="servers-json"></div>
+      </div>
+   </div>
+</div>
+
+<!-- --------------------------------------
+-  __                      __             -
+- /  |                    /  |            -
+- $$ |  ______    ______  $$/  _______    -
+- $$ | /      \  /      \ /  |/       \   -
+- $$ |/$$$$$$  |/$$$$$$  |$$ |$$$$$$$  |  -
+- $$ |$$ |  $$ |$$ |  $$ |$$ |$$ |  $$ |  -
+- $$ |$$ \__$$ |$$ \__$$ |$$ |$$ |  $$ |  -
+- $$ |$$    $$/ $$    $$ |$$ |$$ |  $$ |  -
+- $$/  $$$$$$/   $$$$$$$ |$$/ $$/   $$/   -
+-               /  \__$$ |                -
+-               $$    $$/                 -
+-                $$$$$$/                  -
+-                                         -
+--------------------------------------- -->
+<div class="login-container" lw-if="leanweb.urlHashPath.startsWith('#/login')">
+   <div class="token-input-set">
+      <input type="text" class="ppwui input" placeholder="Please enter access token" lw-model="loginToken"
+         lw-on:keyup="loginByEnter($event)">
+      <button class="ppwui button primary" lw-on:click="login()">Login</button>
+   </div>
+</div>

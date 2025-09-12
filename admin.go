@@ -9,17 +9,14 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-
-	"github.com/elgs/gostrgen"
 )
 
 var dev = os.Getenv("env") == "dev"
 
-//go:embed webadmin
-var webadmin embed.FS
+//go:embed gowebadmin/dist
+var gowebadmin embed.FS
 
 func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
@@ -70,16 +67,13 @@ func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
 }
 
 func StartAdmin() error {
-	secret, _ := gostrgen.RandGen(32, gostrgen.LowerDigit, "", "")
-	port := rand.Intn(10000) + 50000
-	if dev {
-		port = 2022
-		secret = "a"
-	}
-	listen := fmt.Sprintf("[::]:%v", port)
+	secret := getEnv("GOWEB_ADMIN_TOKEN", "gowebadmin")
+	host := getEnv("GOWEB_ADMIN_HOST", "localhost")
+	port := getEnv("GOWEB_ADMIN_PORT", "13579")
+	listen := fmt.Sprintf("%v:%v", host, port)
 
 	mux := http.NewServeMux()
-	sub, err := fs.Sub(webadmin, "webadmin")
+	sub, err := fs.Sub(gowebadmin, "gowebadmin/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,7 +85,8 @@ func StartAdmin() error {
 			return
 		}
 
-		if r.Method == http.MethodPatch {
+		switch r.Method {
+		case http.MethodPatch:
 			// apply servers
 			_servers, err := LoadServersFromRequestBody(r)
 			if err != nil {
@@ -138,7 +133,7 @@ func StartAdmin() error {
 			}
 			servers = _servers
 			fmt.Fprint(w, "{}")
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			// save servers
 			body, err := io.ReadAll(r.Body)
 			defer r.Body.Close()
@@ -164,7 +159,7 @@ func StartAdmin() error {
 				return
 			}
 			fmt.Fprint(w, "{}")
-		} else if r.Method == http.MethodGet {
+		case http.MethodGet:
 			// get servers
 			b, err := json.Marshal(servers)
 			if err != nil {
@@ -242,6 +237,5 @@ func StartAdmin() error {
 		}
 	}()
 	log.Printf("Web admin url: http://%v/admin\n", listen)
-	log.Printf("Access token: %v\n", secret)
 	return nil
 }

@@ -122,9 +122,10 @@ func (this *Server) Start() error {
 			fmt.Fprintf(w, `{"err":"Host '%v' is disabled"}`, requestedHost)
 			return
 		}
-		if host.Type == "301_redirect" {
+		switch host.Type {
+		case "301_redirect":
 			http.Redirect(w, r, fmt.Sprintf("%v%v", host.RedirectURL, r.RequestURI), http.StatusMovedPermanently)
-		} else if host.Type == "serve_static" {
+		case "serve_static":
 			indexPath := path.Join(host.Path, r.URL.Path)
 			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(indexPath) {
 				w.WriteHeader(http.StatusNotFound)
@@ -132,7 +133,7 @@ func (this *Server) Start() error {
 				return
 			}
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
-		} else if host.Type == "reverse_proxy" {
+		case "reverse_proxy":
 			forwardURLs := strings.Fields(host.ForwardURLs)
 			h := fnv.New32a()
 			h.Write([]byte(r.Host))
@@ -340,4 +341,11 @@ func pipe(connLocal net.Conn, connDst net.Conn, bufSize int) {
 			}
 		}
 	}
+}
+
+func getEnv(key, def string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return def
 }

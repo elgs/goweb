@@ -1,0 +1,86 @@
+.server-container {
+  display: flex;
+  justify-content: center;
+  .servers {
+    width: 800px;
+    padding-bottom: 20px;
+    .server-block {
+      padding: 1.25rem;
+      margin: 25px;
+      position: relative;
+      .input-set {
+        height: 30px;
+        display: flex;
+        align-items: center;
+        .input-label {
+          flex: 0 0 120px;
+          font-size: 11pt;
+        }
+        margin-bottom: 10px;
+      }
+      background-color: var(--white-dark);
+      .host-block {
+        margin: 5px 0;
+        background-color: var(--grey-lightest);
+        .host-header {
+          padding: 0.8rem 1.25rem;
+          cursor: pointer;
+          font-weight: 500;
+          transition: 0.4s;
+
+          &.active,
+          &:hover {
+            background-color: var(--grey-lighter);
+          }
+
+          &:after {
+            content: "+";
+            font-size: 13px;
+            color: #777;
+            float: right;
+            margin-left: 5px;
+          }
+
+          &.active:after {
+            content: "-";
+          }
+        }
+        .host-panel {
+          max-height: 0;
+          overflow: hidden;
+          transition: max-height 0.2s ease-out;
+          .host-panel-container {
+            padding: 1.25rem;
+          }
+        }
+      }
+    }
+
+    .button-block {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 15px;
+      button {
+        width: 100px;
+      }
+    }
+    .server-json-panel {
+      margin: 1.25rem 0;
+    }
+    .servers-json-panel {
+      margin: 1.25rem;
+    }
+  }
+}
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  .token-input-set {
+    display: flex;
+    width: 400px;
+  }
+}

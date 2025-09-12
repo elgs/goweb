@@ -1,0 +1,11 @@
+{
+  "name": "gowebadmin",
+  "version": "3.0.8",
+  "components": [
+    "root"
+  ],
+  "imports": [],
+  "resources": [
+    "resources/"
+  ]
+}
