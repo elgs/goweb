@@ -53,6 +53,8 @@ You can configure the web admin interface using the following environment variab
   export GOWEB_ADMIN_PORT="13579"
   ```
 
+The URL to access the admin interface will be `http://<GOWEB_ADMIN_HOST>:<GOWEB_ADMIN_PORT>/admin`. For example, with the above settings, you can access it at `http://localhost:13579/admin`.
+
 Please note the admin interface is only accessible if `GOWEB_ADMIN_TOKEN` is set. The admin interface is in http only. You can use a reverse proxy in front of it to enable https.
 
 ```json
