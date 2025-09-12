@@ -43,17 +43,12 @@ func main() {
 	}
 	confBytes, err := os.ReadFile(*confPath)
 	if err != nil {
-		if secret == "" {
-			servers = []*Server{}
-			log.Println(err)
-		} else {
-			log.Fatalln(err)
-		}
-	} else {
-		servers, err = NewConfig(confBytes)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		log.Fatalln(err)
+	}
+
+	servers, err = NewConfig(confBytes)
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	for _, server := range servers {
@@ -81,11 +76,12 @@ func main() {
 }
 
 func (this *Server) Shutdown() error {
-	if this.Type == "https" || this.Type == "http" {
+	switch this.Type {
+	case "https", "http":
 		if this.httpServer != nil {
 			return this.httpServer.Shutdown(context.Background())
 		}
-	} else if this.Type == "tcp" {
+	case "tcp":
 		this.tcpListening = false
 		if this.tcpListener != nil {
 			this.tcpListener.Close()
