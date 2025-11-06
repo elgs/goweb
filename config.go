@@ -31,6 +31,7 @@ type Host struct {
 	Disabled          bool   `json:"disabled"`
 	DisableDirListing bool   `json:"disable_dir_listing"`
 	Status            string `json:"status"`
+	AllowedOrigins    string `json:"allowed_origins"`
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {

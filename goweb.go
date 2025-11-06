@@ -123,6 +123,11 @@ func (this *Server) Start() error {
 			fmt.Fprintf(w, `{"err":"Host '%v' is disabled"}`, requestedHost)
 			return
 		}
+
+		if host.AllowedOrigins != "" {
+			w.Header().Set("Access-Control-Allow-Origin", host.AllowedOrigins)
+		}
+
 		switch host.Type {
 		case "301_redirect":
 			http.Redirect(w, r, fmt.Sprintf("%v%v", host.RedirectURL, r.RequestURI), http.StatusMovedPermanently)

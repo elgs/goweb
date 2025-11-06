@@ -84,7 +84,8 @@ Please note the admin interface is only accessible if `GOWEB_ADMIN_TOKEN` is set
         "type": "reverse_proxy",
         "forward_urls": "http://localhost:13579",
         "cert_path": "/path/to/certfile",
-        "key_path": "/path/to/keyfile"
+        "key_path": "/path/to/keyfile",
+        "allowed_origins": "*"
       }
     ]
   }
