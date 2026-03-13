@@ -33,7 +33,7 @@ $ yay -S goweb
 
 Then run the server:
 
-```
+```sh
 $ goweb -c /path/to/config.json
 # if the config file happens to be goweb.json in the same directory, you could simply run:
 $ goweb
@@ -94,7 +94,7 @@ Please note the admin interface is only accessible if `GOWEB_ADMIN_TOKEN` is set
 
 ## Uninstall
 
-```
+```sh
 $ rm -rf $HOME/go/bin/goweb
 ```
 
@@ -243,18 +243,19 @@ $ rm -rf $HOME/go/bin/goweb
 | type                | string | Possible types are: `serve_static`, `301_redirect` and `reverse_proxy`.              | `serve_static`, `301_redirect`, `reverse_proxy`      |
 | path                | string | Path to the web root.                                                                | `/path/to/webroot`                                   |
 | redirect_url        | string | The URL that will be 301 redirected to host type is set to `301_redirect`.           | `https://example.com`                                |
-| forward_urls        | string | Space separated list of upstream servers.                                            | `http://s1.example.com:1234` `http://s2.example.com` |
+| forward_urls        | string | Space separated list of upstream servers.                                            | `http://s1.example.com:1234 http://s2.example.com`   |
 | upstream            | string | Upstream tcp socket address.                                                         | `192.168.0.1:1234`                                   |
 | cert_path           | string | Path to the X.509 cert file.                                                         | `/path/to/certfile`                                  |
 | key_path            | string | Path to the X.509 key file.                                                          | `/path/to/keyfile`                                   |
 | disable_dir_listing | bool   | True to disable dir listing if `index.html` file is not present. Defaults to false.  | `false`, `true`                                      |
 | disabled            | bool   | True to disable the host. Defaults to false.                                         | `false`, `true`                                      |
+| allowed_origins     | string | Value for the `Access-Control-Allow-Origin` header. Leave empty to omit the header.  | `*`, `https://example.com`                           |
 
 ## Auto start with systemd
 
 Create service unit file `/etc/systemd/system/goweb.service` with the following content. You can set environment variables for the admin interface (such as GOWEB_ADMIN_TOKEN, GOWEB_ADMIN_HOST, and GOWEB_ADMIN_PORT) using the `Environment` or `EnvironmentFile` directives:
 
-```
+```ini
 [Unit]
 After=network.target
 
@@ -270,15 +271,15 @@ WantedBy=default.target
 
 Alternatively, you can use an environment file:
 
-```
+```ini
 [Service]
 EnvironmentFile=/etc/default/goweb # or wherever you like
 ExecStart=/usr/bin/goweb -c /home/elgs/goweb.json
 ```
 
-And in `/etc/default/goweb`: or wherever you like
+And in `/etc/default/goweb` (or wherever you like):
 
-```
+```sh
 GOWEB_ADMIN_TOKEN=gowebadmin
 GOWEB_ADMIN_HOST=localhost
 GOWEB_ADMIN_PORT=13579
@@ -286,25 +287,25 @@ GOWEB_ADMIN_PORT=13579
 
 Enable the service:
 
-```
+```sh
 $ sudo systemctl enable goweb
 ```
 
 Remove the service:
 
-```
+```sh
 $ sudo systemctl disable goweb
 ```
 
-Start the service
+Start the service:
 
-```
+```sh
 $ sudo systemctl start goweb
 ```
 
-Stop the service
+Stop the service:
 
-```
+```sh
 $ sudo systemctl stop goweb
 ```
 
@@ -320,7 +321,7 @@ Assuming `certbot` is installed. I use the command `certbot certonly` to get a n
 
 Create service unit file `/etc/systemd/system/certbot.service` with the following content:
 
-```
+```ini
 [Unit]
 Description=Let's Encrypt renewal
 
@@ -333,7 +334,7 @@ ExecStartPost=systemctl start goweb
 
 Create timer unit file `/etc/systemd/system/certbot.timer` with the following content:
 
-```
+```ini
 [Unit]
 Description=Twice daily renewal of Let's Encrypt's certificates
 
@@ -348,6 +349,6 @@ WantedBy=timers.target
 
 Enable the timer:
 
-```
+```sh
 $ sudo systemctl enable certbot.timer
 ```
