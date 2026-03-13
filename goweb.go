@@ -147,6 +147,11 @@ func (this *Server) Start() error {
 			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
 		case "reverse_proxy":
 			forwardURLs := strings.Fields(host.ForwardURLs)
+			if len(forwardURLs) == 0 {
+				log.Printf("No forward URLs configured for host %v", host.Name)
+				http.Error(w, `{"err":"no upstream configured"}`, http.StatusBadGateway)
+				return
+			}
 			h := fnv.New32a()
 			clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 			h.Write([]byte(clientIP))
@@ -190,15 +195,13 @@ func (this *Server) Start() error {
 			for k, vs := range res.Header {
 				for _, v := range vs {
 					if strings.ToLower(k) == "location" {
-						lURL, err := url.Parse(v)
-						if err != nil {
-							log.Println(err)
-						}
-						fURL, err := url.Parse(forwardURL)
-						if err != nil {
-							log.Println(err)
-						}
-						if fURL.Scheme == "http" && fURL.Scheme == lURL.Scheme {
+						lURL, lErr := url.Parse(v)
+						fURL, fErr := url.Parse(forwardURL)
+						if lErr != nil {
+							log.Println(lErr)
+						} else if fErr != nil {
+							log.Println(fErr)
+						} else if fURL.Scheme == "http" && fURL.Scheme == lURL.Scheme {
 							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":80")), "")
 						} else if fURL.Scheme == "https" && fURL.Scheme == lURL.Scheme {
 							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":443")), "")
@@ -217,7 +220,9 @@ func (this *Server) Start() error {
 	mux := http.NewServeMux()
 	this.hostMap = make(map[string]*Host, len(this.Hosts))
 	if this.Type == "https" {
-		cfg := &tls.Config{}
+		cfg := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
 
 		for _, host := range this.Hosts {
 			if host.Name == "" {
@@ -283,6 +288,10 @@ func (this *Server) Start() error {
 				enabledHosts = append(enabledHosts, host)
 			}
 		}
+		if len(enabledHosts) == 0 {
+			this.Status = fmt.Sprintf("No enabled hosts for server: %v, %v", this.Name, this.Listen)
+			return errors.New(this.Status)
+		}
 
 		listener, err := net.Listen("tcp", this.Listen)
 		if err != nil {
@@ -347,7 +356,9 @@ func pipe(connLocal net.Conn, connDst net.Conn, bufSize int) {
 		if err != nil {
 			connLocal.Close()
 			connDst.Close()
-			log.Println(err)
+			if err != io.EOF {
+				log.Println(err)
+			}
 			break
 		}
 		if n > 0 {
