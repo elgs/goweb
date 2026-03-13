@@ -22,7 +22,7 @@ import (
 	"syscall"
 )
 
-const version = "8"
+const version = "9"
 
 var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
 var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
