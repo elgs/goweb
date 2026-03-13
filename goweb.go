@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,10 +18,11 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 )
 
-const version = "7"
+const version = "9"
 
 var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
 var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
@@ -30,12 +32,13 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
+var mu sync.Mutex
 var servers []*Server
 var confPath *string
 
 func main() {
 	v := flag.Bool("v", false, "prints version")
-	confPath = flag.String("c", "goweb.json", "configration file path")
+	confPath = flag.String("c", "goweb.json", "configuration file path")
 	flag.Parse()
 	if *v {
 		fmt.Println(version)
@@ -66,6 +69,8 @@ func main() {
 	}
 
 	Hook(func() {
+		mu.Lock()
+		defer mu.Unlock()
 		for _, server := range servers {
 			err := server.Shutdown()
 			if err != nil {
@@ -93,7 +98,8 @@ func (this *Server) Shutdown() error {
 
 func indexFileNotExists(dir string) bool {
 	indexPath := path.Join(dir, "index.html")
-	if stats, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) || stats.IsDir() {
+	stats, err := os.Stat(indexPath)
+	if err != nil || stats.IsDir() {
 		return true
 	}
 	return false
@@ -112,15 +118,15 @@ func (this *Server) Start() error {
 		requestedHost := strings.Split(r.Host, ":")[0]
 		host := this.hostMap[requestedHost]
 		if host == nil {
-			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			fmt.Fprintf(w, `{"err":"Host '%v' not found"}`, requestedHost)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' not found", requestedHost)})
 			return
 		}
 		if host.Disabled {
-			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			fmt.Fprintf(w, `{"err":"Host '%v' is disabled"}`, requestedHost)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' is disabled", requestedHost)})
 			return
 		}
 
@@ -142,7 +148,8 @@ func (this *Server) Start() error {
 		case "reverse_proxy":
 			forwardURLs := strings.Fields(host.ForwardURLs)
 			h := fnv.New32a()
-			h.Write([]byte(r.Host))
+			clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			h.Write([]byte(clientIP))
 			forwardURL := forwardURLs[int(h.Sum32())%len(forwardURLs)]
 			requestURL := fmt.Sprintf("%v%v", forwardURL, r.RequestURI)
 
@@ -151,27 +158,33 @@ func (this *Server) Start() error {
 					return http.ErrUseLastResponse
 				},
 			}
-			req, err := http.NewRequest(r.Method, requestURL, r.Body)
 			defer r.Body.Close()
+			req, err := http.NewRequest(r.Method, requestURL, r.Body)
 			if err != nil {
 				log.Println(err)
+				http.Error(w, `{"err":"internal server error"}`, http.StatusInternalServerError)
+				return
 			}
 			// copy request headers
 			for k, vs := range r.Header {
 				for _, v := range vs {
-					req.Header.Set(k, v)
+					req.Header.Add(k, v)
 				}
 			}
 
 			res, err := client.Do(req)
 			if err != nil {
 				log.Println(err)
+				http.Error(w, `{"err":"bad gateway"}`, http.StatusBadGateway)
+				return
 			}
+			defer res.Body.Close()
 
 			body, err := io.ReadAll(res.Body)
-			defer res.Body.Close()
 			if err != nil {
 				log.Println(err)
+				http.Error(w, `{"err":"internal server error"}`, http.StatusInternalServerError)
+				return
 			}
 			// copy response headers
 			for k, vs := range res.Header {
@@ -193,7 +206,7 @@ func (this *Server) Start() error {
 							v = strings.ReplaceAll(v, forwardURL, "")
 						}
 					}
-					w.Header().Set(k, v)
+					w.Header().Add(k, v)
 				}
 			}
 			w.WriteHeader(res.StatusCode)
@@ -272,11 +285,11 @@ func (this *Server) Start() error {
 		}
 
 		listener, err := net.Listen("tcp", this.Listen)
-		this.tcpListener = listener
 		if err != nil {
 			this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
-			log.Println(this.Status)
+			return errors.New(this.Status)
 		}
+		this.tcpListener = listener
 		log.Printf("Listening on %v %v\n", this.Type, this.Listen)
 		this.tcpListening = true
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,8 +18,11 @@ var dev = os.Getenv("env") == "dev"
 var gowebadmin embed.FS
 
 func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) bool {
-	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	origin := r.Header.Get("Origin")
+	if origin == fmt.Sprintf("http://%v:%v", host, port) || origin == fmt.Sprintf("https://%v:%v", host, port) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}
 	w.Header().Set("Access-Control-Allow-Methods", r.Header.Get("Access-Control-Request-Method"))
 	w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
 	if r.Method == "OPTIONS" {
@@ -30,17 +32,16 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 	token := r.Header.Get("authorization")
 	if token != secret {
 		w.WriteHeader(http.StatusUnauthorized)
-		err := errors.New("Invalid access token.")
-		fmt.Fprintf(w, `{"err":"%v"}`, err)
-		log.Println(err)
+		json.NewEncoder(w).Encode(map[string]string{"err": "Invalid access token."})
+		log.Println("Invalid access token.")
 		return true
 	}
 	return false
 }
 
 func LoadServersFromRequestBody(r *http.Request) ([]*Server, error) {
-	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +54,8 @@ func LoadServersFromRequestBody(r *http.Request) ([]*Server, error) {
 }
 
 func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
-	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +79,12 @@ func StartAdmin() error {
 	// mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
+	writeErr := func(w http.ResponseWriter, status int, err error) {
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"err": err.Error()})
+		log.Println(err)
+	}
+
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
 		if CheckAccessToken(secret, w, r) {
 			return
@@ -88,44 +95,31 @@ func StartAdmin() error {
 			// apply servers
 			_servers, err := LoadServersFromRequestBody(r)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
-			for _, server := range servers {
+			mu.Lock()
+			defer mu.Unlock()
+			oldServers := servers
+			for _, server := range oldServers {
 				err := server.Shutdown()
 				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintf(w, `{"err":"%v"}`, err)
-					log.Println(err)
+					writeErr(w, http.StatusBadRequest, err)
 					return
 				}
 			}
 			for _, server := range _servers {
 				err := server.Start()
 				if err != nil {
-					for _, server := range _servers {
-						err := server.Shutdown()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprintf(w, `{"err":"%v"}`, err)
-							log.Println(err)
-							return
-						}
+					// rollback: shut down new servers that started
+					for _, s := range _servers {
+						s.Shutdown()
 					}
-					for _, server := range servers {
-						err := server.Shutdown()
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							fmt.Fprintf(w, `{"err":"%v"}`, err)
-							log.Println(err)
-							return
-						}
+					// restore old servers
+					for _, s := range oldServers {
+						s.Start()
 					}
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintf(w, `{"err":"%v"}`, err)
-					log.Println(err)
+					writeErr(w, http.StatusBadRequest, err)
 					return
 				}
 			}
@@ -133,40 +127,34 @@ func StartAdmin() error {
 			fmt.Fprint(w, "{}")
 		case http.MethodPost:
 			// save servers
-			body, err := io.ReadAll(r.Body)
 			defer r.Body.Close()
+			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
 			var formattedServersJSONBuffer bytes.Buffer
 			err = json.Indent(&formattedServersJSONBuffer, body, "", "  ")
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
 			err = os.WriteFile(*confPath, formattedServersJSONBuffer.Bytes(), 0644)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
 			fmt.Fprint(w, "{}")
 		case http.MethodGet:
 			// get servers
+			mu.Lock()
 			b, err := json.Marshal(servers)
+			mu.Unlock()
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
-			fmt.Fprint(w, string(b))
+			w.Write(b)
 		}
 	})
 
@@ -179,35 +167,29 @@ func StartAdmin() error {
 			// apply server
 			_server, err := LoadServerFromRequestBody(r)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, err)
-				log.Println(err)
+				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
 
 			if _server.Name == "" {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"err":"%v"}`, "Name is required")
-				log.Println("Name is required")
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("Name is required"))
 				return
 			}
 
+			mu.Lock()
+			defer mu.Unlock()
 			newServer := true
 			for serverIndex, server := range servers {
 				if server.Name == _server.Name {
 					newServer = false
 					err := server.Shutdown()
 					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						fmt.Fprintf(w, `{"err":"%v"}`, err)
-						log.Println(err)
+						writeErr(w, http.StatusBadRequest, err)
 						return
 					}
 					err = _server.Start()
 					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						fmt.Fprintf(w, `{"err":"%v"}`, err)
-						log.Println(err)
+						writeErr(w, http.StatusBadRequest, err)
 						return
 					}
 					servers[serverIndex] = _server
@@ -217,9 +199,7 @@ func StartAdmin() error {
 			if newServer {
 				err := _server.Start()
 				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintf(w, `{"err":"%v"}`, err)
-					log.Println(err)
+					writeErr(w, http.StatusBadRequest, err)
 					return
 				}
 				servers = append(servers, _server)
