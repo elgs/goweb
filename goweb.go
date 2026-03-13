@@ -114,6 +114,11 @@ func (this *Server) Start() error {
 		return nil
 	}
 	var fileServers sync.Map
+	proxyClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "goweb")
 		requestedHost := strings.Split(r.Host, ":")[0]
@@ -164,11 +169,6 @@ func (this *Server) Start() error {
 			forwardURL := forwardURLs[int(h.Sum32())%len(forwardURLs)]
 			requestURL := fmt.Sprintf("%v%v", forwardURL, r.RequestURI)
 
-			client := &http.Client{
-				CheckRedirect: func(req *http.Request, via []*http.Request) error {
-					return http.ErrUseLastResponse
-				},
-			}
 			defer r.Body.Close()
 			req, err := http.NewRequest(r.Method, requestURL, r.Body)
 			if err != nil {
@@ -183,7 +183,7 @@ func (this *Server) Start() error {
 				}
 			}
 
-			res, err := client.Do(req)
+			res, err := proxyClient.Do(req)
 			if err != nil {
 				log.Println(err)
 				http.Error(w, `{"err":"bad gateway"}`, http.StatusBadGateway)
