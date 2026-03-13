@@ -113,6 +113,7 @@ func (this *Server) Start() error {
 	if this.Disabled {
 		return nil
 	}
+	fileServers := make(map[string]http.Handler)
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "goweb")
 		requestedHost := strings.Split(r.Host, ":")[0]
@@ -144,7 +145,12 @@ func (this *Server) Start() error {
 				fmt.Fprintf(w, `{"err":"404 page not found"}`)
 				return
 			}
-			http.FileServer(http.Dir(host.Path)).ServeHTTP(w, r)
+			fs, ok := fileServers[host.Name]
+			if !ok {
+				fs = http.FileServer(http.Dir(host.Path))
+				fileServers[host.Name] = fs
+			}
+			fs.ServeHTTP(w, r)
 		case "reverse_proxy":
 			forwardURLs := strings.Fields(host.ForwardURLs)
 			if len(forwardURLs) == 0 {

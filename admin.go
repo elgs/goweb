@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -30,7 +31,7 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	token := r.Header.Get("authorization")
-	if token != secret {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"err": "Invalid access token."})
 		log.Println("Invalid access token.")
