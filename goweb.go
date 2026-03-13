@@ -87,7 +87,7 @@ func (this *Server) Shutdown() error {
 			return this.httpServer.Shutdown(context.Background())
 		}
 	case "tcp":
-		this.tcpListening = false
+		this.tcpListening.Store(false)
 		if this.tcpListener != nil {
 			this.tcpListener.Close()
 			log.Printf("%v: Server closed %v", this.Type, this.Listen)
@@ -113,7 +113,7 @@ func (this *Server) Start() error {
 	if this.Disabled {
 		return nil
 	}
-	fileServers := make(map[string]http.Handler)
+	var fileServers sync.Map
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "goweb")
 		requestedHost := strings.Split(r.Host, ":")[0]
@@ -145,12 +145,12 @@ func (this *Server) Start() error {
 				fmt.Fprintf(w, `{"err":"404 page not found"}`)
 				return
 			}
-			fs, ok := fileServers[host.Name]
+			fsVal, ok := fileServers.Load(host.Name)
 			if !ok {
-				fs = http.FileServer(http.Dir(host.Path))
-				fileServers[host.Name] = fs
+				fsVal = http.FileServer(http.Dir(host.Path))
+				fileServers.Store(host.Name, fsVal)
 			}
-			fs.ServeHTTP(w, r)
+			fsVal.(http.Handler).ServeHTTP(w, r)
 		case "reverse_proxy":
 			forwardURLs := strings.Fields(host.ForwardURLs)
 			if len(forwardURLs) == 0 {
@@ -306,11 +306,11 @@ func (this *Server) Start() error {
 		}
 		this.tcpListener = listener
 		log.Printf("Listening on %v %v\n", this.Type, this.Listen)
-		this.tcpListening = true
+		this.tcpListening.Store(true)
 
 		go func() {
 			for {
-				if !this.tcpListening {
+				if !this.tcpListening.Load() {
 					break
 				}
 				connLocal, err := this.tcpListener.Accept()

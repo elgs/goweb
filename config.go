@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sync/atomic"
 )
 
 type Server struct {
@@ -15,7 +16,7 @@ type Server struct {
 	hostMap      map[string]*Host
 	httpServer   *http.Server
 	tcpListener  net.Listener
-	tcpListening bool
+	tcpListening atomic.Bool
 	Status       string `json:"status"`
 }
 
