@@ -183,6 +183,9 @@ func (this *Server) Start() error {
 				}
 			}
 			req.Host = r.Host
+			if r.TLS != nil {
+				req.Header.Set("X-Forwarded-Proto", "https")
+			}
 
 			res, err := proxyClient.Do(req)
 			if err != nil {
