@@ -182,6 +182,7 @@ func (this *Server) Start() error {
 					req.Header.Add(k, v)
 				}
 			}
+			req.Host = r.Host
 
 			res, err := proxyClient.Do(req)
 			if err != nil {
