@@ -1,5 +1,6 @@
 [
   {
+    "name": "http-80",
     "type": "http",
     "listen": "[::]:80",
     "hosts": [
@@ -16,6 +17,7 @@
     ]
   },
   {
+    "name": "https-443",
     "type": "https",
     "listen": "[::]:443",
     "hosts": [

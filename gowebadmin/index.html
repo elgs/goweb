@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-ui-theme="ocean">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>goweb admin</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script>
+    document.documentElement.dataset.theme =
+      localStorage.getItem('goweb-admin-theme') ||
+      (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
+  <link rel="stylesheet" href="resources/ui.css">
+  <link rel="stylesheet" href="resources/icons.css">
+  <link rel="stylesheet" href="resources/theme-ocean.css">
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+
+<body>
+
+  <!-- login -->
+  <div id="login" class="login" hidden>
+    <div class="ui-card elevated login-card">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#0077b6" />
+        <g fill="none" stroke="#fff" stroke-width="3.5">
+          <circle cx="32" cy="32" r="16" />
+          <ellipse cx="32" cy="32" rx="7.5" ry="16" />
+          <path d="M16 32h32" />
+        </g>
+      </svg>
+      <h1>goweb <span>admin</span></h1>
+      <p class="ui-text-muted">Enter the admin access token<br>(the value of <code>GOWEB_ADMIN_TOKEN</code>).</p>
+      <div class="ui-field">
+        <label for="login-token">Access token</label>
+        <input class="ui-input" type="password" id="login-token" placeholder="••••••••••••" autocomplete="current-password">
+        <span class="ui-error-text" id="login-error" hidden>Invalid access token.</span>
+      </div>
+      <button class="ui-btn" id="login-btn" data-action="login">Sign in</button>
+    </div>
+  </div>
+
+  <!-- app -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="#0077b6" />
+            <g fill="none" stroke="#fff" stroke-width="3.5">
+              <circle cx="32" cy="32" r="16" />
+              <ellipse cx="32" cy="32" rx="7.5" ry="16" />
+              <path d="M16 32h32" />
+            </g>
+          </svg>
+          <h1>goweb <span>admin</span></h1>
+          <span class="ui-badge warning outline" id="badge-unapplied" hidden>not applied</span>
+          <span class="ui-badge secondary outline" id="badge-unsaved" hidden>not saved</span>
+        </div>
+        <div class="actions">
+          <button class="ui-btn ghost sm" data-action="add-server">
+            <i class="ui-icon ui-icon-plus"></i><span class="btn-label">Add server</span>
+          </button>
+          <button class="ui-btn ghost sm ui-tooltip bottom" data-action="json" data-tooltip="View or edit the raw JSON config">
+            <i class="ui-icon ui-icon-code"></i><span class="btn-label">JSON</span>
+          </button>
+          <span class="sep"></span>
+          <button class="ui-btn sm ui-tooltip bottom" data-action="apply" id="btn-apply"
+            data-tooltip="Apply the config to the running server (does not write to disk)">
+            <i class="ui-icon ui-icon-rocket"></i><span class="btn-label">Apply</span>
+          </button>
+          <button class="ui-btn secondary sm ui-tooltip bottom" data-action="save" id="btn-save"
+            data-tooltip="Write the config to the file on disk (⌘S / Ctrl+S)">
+            <i class="ui-icon ui-icon-save"></i><span class="btn-label">Save</span>
+          </button>
+          <span class="sep"></span>
+          <button class="ui-btn ghost icon sm ui-tooltip bottom" data-action="theme" id="btn-theme" data-tooltip="Toggle theme">
+            <i class="ui-icon ui-icon-moon"></i>
+          </button>
+          <button class="ui-btn ghost icon sm ui-tooltip bottom" data-action="logout" data-tooltip="Sign out">
+            <i class="ui-icon ui-icon-log-out"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div id="servers"></div>
+    </main>
+  </div>
+
+  <!-- raw JSON dialog -->
+  <div class="ui-dialog-backdrop" id="dlg-json">
+    <div class="ui-dialog wide" role="dialog" aria-modal="true" aria-labelledby="dlg-json-title">
+      <div class="ui-dialog-header">
+        <h3 class="ui-dialog-title" id="dlg-json-title">Configuration JSON</h3>
+        <button class="ui-dialog-close" aria-label="Close" data-action="dlg-close">&times;</button>
+      </div>
+      <div class="ui-dialog-body">
+        <textarea class="ui-textarea" id="json-text" spellcheck="false"></textarea>
+        <div class="ui-alert danger" id="json-error" hidden></div>
+      </div>
+      <div class="ui-dialog-footer">
+        <button class="ui-btn ghost secondary" data-action="json-copy">
+          <i class="ui-icon ui-icon-copy"></i>Copy
+        </button>
+        <span class="spacer"></span>
+        <button class="ui-btn ghost secondary" data-action="dlg-close">Cancel</button>
+        <button class="ui-btn" data-action="json-use">Use this config</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- delete confirmation dialog -->
+  <div class="ui-dialog-backdrop" id="dlg-confirm">
+    <div class="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-confirm-title">
+      <div class="ui-dialog-header">
+        <h3 class="ui-dialog-title" id="dlg-confirm-title">Delete server</h3>
+        <button class="ui-dialog-close" aria-label="Close" data-action="dlg-close">&times;</button>
+      </div>
+      <div class="ui-dialog-body" id="confirm-text"></div>
+      <div class="ui-dialog-footer">
+        <button class="ui-btn ghost secondary" data-action="dlg-close">Cancel</button>
+        <button class="ui-btn danger" data-action="confirm-del">
+          <i class="ui-icon ui-icon-trash"></i>Delete
+        </button>
+      </div>
+    </div>
+  </div>
+
+</body>
+
+</html>

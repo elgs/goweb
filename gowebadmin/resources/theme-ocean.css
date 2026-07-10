@@ -1,0 +1,53 @@
+/*
+   UI Library Theme — Ocean
+
+   Usage:
+   1. Include after ui.css:  <link rel="stylesheet" href="themes/ocean.css">
+   2. Activate:              <html data-ui-theme="ocean">
+      or via JS:             document.documentElement.dataset.uiTheme = 'ocean'
+
+   Only override the properties you want to change.
+   Hover / active / light variants are derived automatically via color-mix().
+*/
+
+[data-ui-theme="ocean"] {
+  --ui-primary: #0077b6;
+  --ui-primary-text: #ffffff;
+  --ui-secondary: #457b9d;
+  --ui-secondary-text: #ffffff;
+  --ui-success: #06d6a0;
+  --ui-success-text: #ffffff;
+  --ui-danger: #ef476f;
+  --ui-danger-text: #ffffff;
+  --ui-warning: #ffd166;
+  --ui-warning-text: #1a1d26;
+
+  --ui-bg: #f8fbff;
+  --ui-bg-subtle: #edf4fc;
+  --ui-surface: #ffffff;
+  --ui-border: #c8dce8;
+  --ui-text: #1d3557;
+  --ui-text-muted: #6b8299;
+  --ui-text-inverse: #ffffff;
+}
+
+[data-ui-theme="ocean"][data-theme="dark"] {
+  --ui-primary: #48cae4;
+  --ui-primary-text: #ffffff;
+  --ui-secondary: #8ab4c7;
+  --ui-secondary-text: #ffffff;
+  --ui-success: #51cf96;
+  --ui-success-text: #ffffff;
+  --ui-danger: #ff7b8a;
+  --ui-danger-text: #ffffff;
+  --ui-warning: #ffc048;
+  --ui-warning-text: #1a1d26;
+
+  --ui-bg: #0d1b2a;
+  --ui-bg-subtle: #071420;
+  --ui-surface: #1b2838;
+  --ui-border: #2a3f52;
+  --ui-text: #e0e8f0;
+  --ui-text-muted: #7a9ab5;
+  --ui-text-inverse: #0d1b2a;
+}

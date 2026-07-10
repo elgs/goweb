@@ -12,17 +12,24 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
 	"path"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const version = "9"
+
+const (
+	shutdownTimeout   = 10 * time.Second
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
 
 var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
 var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
@@ -64,7 +71,7 @@ func main() {
 	if secret != "" {
 		err = StartAdmin()
 		if err != nil {
-			log.Fatalln(err)
+			log.Println("Failed to start admin server:", err)
 		}
 	}
 
@@ -83,13 +90,25 @@ func main() {
 func (this *Server) Shutdown() error {
 	switch this.Type {
 	case "https", "http":
+		var err error
 		if this.httpServer != nil {
-			return this.httpServer.Shutdown(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			err = this.httpServer.Shutdown(ctx)
+			if err != nil {
+				// graceful shutdown failed or timed out; force-close
+				this.httpServer.Close()
+			}
 		}
+		if this.listener != nil {
+			// usually already closed by httpServer.Shutdown; this covers the
+			// window where the serve goroutine has not picked it up yet
+			this.listener.Close()
+		}
+		return err
 	case "tcp":
-		this.tcpListening.Store(false)
-		if this.tcpListener != nil {
-			this.tcpListener.Close()
+		if this.listener != nil {
+			this.listener.Close()
 			log.Printf("%v: Server closed %v", this.Type, this.Listen)
 		}
 	}
@@ -113,234 +132,307 @@ func (this *Server) Start() error {
 	if this.Disabled {
 		return nil
 	}
-	var fileServers sync.Map
-	proxyClient := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	switch this.Type {
+	case "http", "https":
+		return this.startHTTP()
+	case "tcp":
+		return this.startTCP()
+	default:
+		this.Status = fmt.Sprintf("Unknown server type '%v' for server: %v, %v", this.Type, this.Name, this.Listen)
+		return errors.New(this.Status)
 	}
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Server", "goweb")
-		requestedHost := strings.Split(r.Host, ":")[0]
-		host := this.hostMap[requestedHost]
-		if host == nil {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' not found", requestedHost)})
-			return
-		}
-		if host.Disabled {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' is disabled", requestedHost)})
-			return
-		}
+}
 
-		if host.AllowedOrigins != "" {
-			w.Header().Set("Access-Control-Allow-Origin", host.AllowedOrigins)
-		}
-
-		switch host.Type {
-		case "301_redirect":
-			http.Redirect(w, r, fmt.Sprintf("%v%v", host.RedirectURL, r.RequestURI), http.StatusMovedPermanently)
-		case "serve_static":
-			indexPath := path.Join(host.Path, r.URL.Path)
-			if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(indexPath) {
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprintf(w, `{"err":"404 page not found"}`)
-				return
-			}
-			fsVal, ok := fileServers.Load(host.Name)
-			if !ok {
-				fsVal = http.FileServer(http.Dir(host.Path))
-				fileServers.Store(host.Name, fsVal)
-			}
-			fsVal.(http.Handler).ServeHTTP(w, r)
-		case "reverse_proxy":
-			forwardURLs := strings.Fields(host.ForwardURLs)
-			if len(forwardURLs) == 0 {
-				log.Printf("No forward URLs configured for host %v", host.Name)
-				http.Error(w, `{"err":"no upstream configured"}`, http.StatusBadGateway)
-				return
-			}
-			h := fnv.New32a()
-			clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-			h.Write([]byte(clientIP))
-			forwardURL := forwardURLs[int(h.Sum32())%len(forwardURLs)]
-			requestURL := fmt.Sprintf("%v%v", forwardURL, r.RequestURI)
-
-			defer r.Body.Close()
-			req, err := http.NewRequest(r.Method, requestURL, r.Body)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, `{"err":"internal server error"}`, http.StatusInternalServerError)
-				return
-			}
-			// copy request headers
-			for k, vs := range r.Header {
-				for _, v := range vs {
-					req.Header.Add(k, v)
-				}
-			}
-			req.Host = r.Host
-			if r.TLS != nil {
-				req.Header.Set("X-Forwarded-Proto", "https")
-			}
-
-			res, err := proxyClient.Do(req)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, `{"err":"bad gateway"}`, http.StatusBadGateway)
-				return
-			}
-			defer res.Body.Close()
-
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, `{"err":"internal server error"}`, http.StatusInternalServerError)
-				return
-			}
-			// copy response headers
-			for k, vs := range res.Header {
-				for _, v := range vs {
-					if strings.ToLower(k) == "location" {
-						lURL, lErr := url.Parse(v)
-						fURL, fErr := url.Parse(forwardURL)
-						if lErr != nil {
-							log.Println(lErr)
-						} else if fErr != nil {
-							log.Println(fErr)
-						} else if fURL.Scheme == "http" && fURL.Scheme == lURL.Scheme {
-							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":80")), "")
-						} else if fURL.Scheme == "https" && fURL.Scheme == lURL.Scheme {
-							v = strings.ReplaceAll(v, fmt.Sprintf("%v://%v", fURL.Scheme, strings.TrimSuffix(fURL.Host, ":443")), "")
-						} else {
-							v = strings.ReplaceAll(v, forwardURL, "")
-						}
-					}
-					w.Header().Add(k, v)
-				}
-			}
-			w.WriteHeader(res.StatusCode)
-			w.Write(body)
-		}
-	}
-
-	mux := http.NewServeMux()
-	this.hostMap = make(map[string]*Host, len(this.Hosts))
+func (this *Server) startHTTP() error {
+	var tlsConfig *tls.Config
 	if this.Type == "https" {
-		cfg := &tls.Config{
+		tlsConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
+	}
 
-		for _, host := range this.Hosts {
-			if host.Name == "" {
-				host.Status = fmt.Sprintf("Host name is required, server: %v, %v", this.Name, this.Listen)
+	this.hostMap = make(map[string]*Host, len(this.Hosts))
+	for _, host := range this.Hosts {
+		if host.Name == "" {
+			host.Status = fmt.Sprintf("Host name is required, server: %v, %v", this.Name, this.Listen)
+			return errors.New(host.Status)
+		}
+		if !host.Disabled {
+			switch host.Type {
+			case "serve_static":
+				host.fileServer = http.FileServer(http.Dir(host.Path))
+			case "301_redirect":
+				// nothing to prepare
+			case "reverse_proxy":
+				if err := host.buildProxies(); err != nil {
+					host.Status = fmt.Sprintf("%v, server: %v, %v", err, this.Name, this.Listen)
+					return errors.New(host.Status)
+				}
+			default:
+				host.Status = fmt.Sprintf("Unknown host type '%v' for host: %v, server: %v, %v", host.Type, host.Name, this.Name, this.Listen)
 				return errors.New(host.Status)
 			}
+		}
+		if this.Type == "https" {
 			keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 			if err != nil {
 				host.Status = fmt.Sprintf("%v for host: %v, server: %v, %v", err, host.Name, this.Name, this.Listen)
 				return errors.New(host.Status)
 			}
-			cfg.Certificates = append(cfg.Certificates, keyPair)
-			this.hostMap[host.Name] = host
+			tlsConfig.Certificates = append(tlsConfig.Certificates, keyPair)
 		}
-
-		// cfg.BuildNameToCertificate()
-
-		mux.HandleFunc("/", handler)
-
-		srv := http.Server{
-			Addr:      this.Listen,
-			Handler:   mux,
-			TLSConfig: cfg,
-		}
-		this.httpServer = &srv
-
-		go func() {
-			err := srv.ListenAndServeTLS("", "")
-			if err != nil {
-				log.Println(err, fmt.Sprintf("%v://%v/", this.Type, this.Listen))
-			}
-		}()
-		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
-	} else if this.Type == "http" {
-		for _, host := range this.Hosts {
-			if host.Name == "" {
-				host.Status = fmt.Sprintf("Host name is required, server: %v, %v", this.Name, this.Listen)
-				return errors.New(host.Status)
-			}
-			this.hostMap[host.Name] = host
-		}
-
-		mux.HandleFunc("/", handler)
-
-		srv := http.Server{
-			Addr:    this.Listen,
-			Handler: mux,
-		}
-		this.httpServer = &srv
-
-		go func() {
-			err := srv.ListenAndServe()
-			if err != nil {
-				this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
-				log.Println(this.Status)
-			}
-		}()
-		log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
-	} else if this.Type == "tcp" {
-		enabledHosts := make([]*Host, 0, len(this.Hosts))
-		for _, host := range this.Hosts {
-			if !host.Disabled {
-				enabledHosts = append(enabledHosts, host)
-			}
-		}
-		if len(enabledHosts) == 0 {
-			this.Status = fmt.Sprintf("No enabled hosts for server: %v, %v", this.Name, this.Listen)
-			return errors.New(this.Status)
-		}
-
-		listener, err := net.Listen("tcp", this.Listen)
-		if err != nil {
-			this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
-			return errors.New(this.Status)
-		}
-		this.tcpListener = listener
-		log.Printf("Listening on %v %v\n", this.Type, this.Listen)
-		this.tcpListening.Store(true)
-
-		go func() {
-			for {
-				if !this.tcpListening.Load() {
-					break
-				}
-				connLocal, err := this.tcpListener.Accept()
-				if err != nil {
-					// log.Println(err)
-					continue
-				}
-
-				go func() {
-					h := fnv.New32a()
-					h.Write([]byte(connLocal.RemoteAddr().String()))
-					enabledHost := enabledHosts[int(h.Sum32())%len(enabledHosts)]
-					connDst, err := net.Dial("tcp", enabledHost.Upstream)
-					if err != nil {
-						log.Println(err)
-						connLocal.Close()
-						return
-					}
-					go pipe(connLocal, connDst, 4096)
-					pipe(connDst, connLocal, 4096)
-				}()
-			}
-		}()
+		this.hostMap[normalizeHost(host.Name)] = host
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", this.handle)
+
+	listener, err := net.Listen("tcp", this.Listen)
+	if err != nil {
+		this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
+		return errors.New(this.Status)
+	}
+	this.listener = listener
+
+	srv := &http.Server{
+		Handler:           mux,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+	this.httpServer = srv
+
+	go func() {
+		var err error
+		if this.Type == "https" {
+			err = srv.ServeTLS(listener, "", "")
+		} else {
+			err = srv.Serve(listener)
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
+			log.Println(this.Status)
+		}
+	}()
+	log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
 	return nil
+}
+
+func (this *Server) handle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Server", "goweb")
+	requestedHost := normalizeHost(r.Host)
+	host := this.hostMap[requestedHost]
+	if host == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' not found", requestedHost)})
+		return
+	}
+	if host.Disabled {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Host '%v' is disabled", requestedHost)})
+		return
+	}
+
+	if host.AllowedOrigins != "" {
+		w.Header().Set("Access-Control-Allow-Origin", host.AllowedOrigins)
+	}
+
+	switch host.Type {
+	case "301_redirect":
+		http.Redirect(w, r, fmt.Sprintf("%v%v", host.RedirectURL, r.RequestURI), http.StatusMovedPermanently)
+	case "serve_static":
+		dirPath := path.Join(host.Path, r.URL.Path)
+		if host.DisableDirListing && strings.HasSuffix(r.URL.Path, "/") && indexFileNotExists(dirPath) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"err":"404 page not found"}`)
+			return
+		}
+		host.fileServer.ServeHTTP(w, r)
+	case "reverse_proxy":
+		proxy := host.forwardProxies[hashIndex(clientIP(r.RemoteAddr), len(host.forwardProxies))]
+		proxy.ServeHTTP(w, r)
+	default:
+		// unreachable: host types are validated in startHTTP
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"err": fmt.Sprintf("Unknown host type '%v'", host.Type)})
+	}
+}
+
+// buildProxies parses the space separated forward URLs and builds one reverse
+// proxy per upstream. The proxies stream request and response bodies, strip
+// hop-by-hop headers, set X-Forwarded-For/Host/Proto and support upgrades
+// such as websockets.
+func (host *Host) buildProxies() error {
+	forwardURLs := strings.Fields(host.ForwardURLs)
+	if len(forwardURLs) == 0 {
+		return fmt.Errorf("no forward URLs configured for host: %v", host.Name)
+	}
+	proxies := make([]*httputil.ReverseProxy, 0, len(forwardURLs))
+	for _, forwardURL := range forwardURLs {
+		target, err := url.Parse(forwardURL)
+		if err != nil {
+			return fmt.Errorf("invalid forward URL '%v' for host: %v: %v", forwardURL, host.Name, err)
+		}
+		if (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
+			return fmt.Errorf("invalid forward URL '%v' for host: %v", forwardURL, host.Name)
+		}
+		proxies = append(proxies, &httputil.ReverseProxy{
+			Rewrite: func(r *httputil.ProxyRequest) {
+				r.SetURL(target)
+				r.SetXForwarded()
+				r.Out.Host = r.In.Host
+			},
+			ModifyResponse: func(res *http.Response) error {
+				rewriteLocation(res, target)
+				return nil
+			},
+			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+				log.Println(err)
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusBadGateway)
+				fmt.Fprint(w, `{"err":"bad gateway"}`)
+			},
+		})
+	}
+	host.forwardProxies = proxies
+	return nil
+}
+
+// rewriteLocation makes upstream Location headers relative when they point
+// back at the upstream itself, so redirects keep clients on this proxy.
+func rewriteLocation(res *http.Response, target *url.URL) {
+	location := res.Header.Get("Location")
+	if location == "" {
+		return
+	}
+	u, err := url.Parse(location)
+	if err != nil || u.Host == "" {
+		return
+	}
+	if canonicalHostPort(u) != canonicalHostPort(target) {
+		return
+	}
+	u.Scheme = ""
+	u.Host = ""
+	u.User = nil
+	rel := u.String()
+	if rel == "" {
+		rel = "/"
+	}
+	res.Header.Set("Location", rel)
+}
+
+// canonicalHostPort returns the URL's host:port with the scheme's default
+// port filled in when absent.
+func canonicalHostPort(u *url.URL) string {
+	hostPort := u.Host
+	if u.Port() == "" {
+		switch u.Scheme {
+		case "http":
+			hostPort += ":80"
+		case "https":
+			hostPort += ":443"
+		}
+	}
+	return strings.ToLower(hostPort)
+}
+
+// normalizeHost lowercases a host name and strips an optional port, handling
+// IPv6 literals such as [::1]:443.
+func normalizeHost(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = strings.Trim(hostport, "[]")
+	}
+	return strings.ToLower(host)
+}
+
+// clientIP returns the IP part of an ip:port remote address, so load
+// balancing is sticky per client instead of per connection.
+func clientIP(remoteAddr string) string {
+	ip, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return ip
+}
+
+// hashIndex maps s onto [0, n) with an fnv-1a hash. The modulo is done in
+// uint32 so the result is valid on 32-bit platforms too.
+func hashIndex(s string, n int) int {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return int(h.Sum32() % uint32(n))
+}
+
+func (this *Server) startTCP() error {
+	enabledHosts := make([]*Host, 0, len(this.Hosts))
+	for _, host := range this.Hosts {
+		if !host.Disabled {
+			enabledHosts = append(enabledHosts, host)
+		}
+	}
+	if len(enabledHosts) == 0 {
+		this.Status = fmt.Sprintf("No enabled hosts for server: %v, %v", this.Name, this.Listen)
+		return errors.New(this.Status)
+	}
+	for _, host := range enabledHosts {
+		if _, _, err := net.SplitHostPort(host.Upstream); err != nil {
+			host.Status = fmt.Sprintf("Invalid upstream '%v' for host: %v, server: %v: %v", host.Upstream, host.Name, this.Name, err)
+			return errors.New(host.Status)
+		}
+	}
+
+	listener, err := net.Listen("tcp", this.Listen)
+	if err != nil {
+		this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
+		return errors.New(this.Status)
+	}
+	this.listener = listener
+	log.Printf("Listening on %v %v\n", this.Type, this.Listen)
+
+	go acceptTCP(listener, enabledHosts)
+	return nil
+}
+
+func acceptTCP(listener net.Listener, enabledHosts []*Host) {
+	var delay time.Duration
+	for {
+		connLocal, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			// back off so persistent errors (e.g. EMFILE) don't spin the CPU
+			if delay == 0 {
+				delay = 5 * time.Millisecond
+			} else {
+				delay *= 2
+			}
+			if delay > time.Second {
+				delay = time.Second
+			}
+			log.Println(err)
+			time.Sleep(delay)
+			continue
+		}
+		delay = 0
+
+		go func() {
+			enabledHost := enabledHosts[hashIndex(clientIP(connLocal.RemoteAddr().String()), len(enabledHosts))]
+			connDst, err := net.Dial("tcp", enabledHost.Upstream)
+			if err != nil {
+				log.Println(err)
+				connLocal.Close()
+				return
+			}
+			pipe(connLocal, connDst)
+		}()
+	}
 }
 
 func Hook(clean func()) {
@@ -358,28 +450,29 @@ func Hook(clean func()) {
 	<-done
 }
 
-func pipe(connLocal net.Conn, connDst net.Conn, bufSize int) {
-	var buffer = make([]byte, bufSize)
-	for {
-		runtime.Gosched()
-		n, err := connLocal.Read(buffer)
-		if err != nil {
-			connLocal.Close()
-			connDst.Close()
-			if err != io.EOF {
-				log.Println(err)
-			}
-			break
-		}
-		if n > 0 {
-			_, err := connDst.Write(buffer[0:n])
-			if err != nil {
-				connLocal.Close()
-				connDst.Close()
-				log.Println(err)
-				break
-			}
-		}
+// pipe copies data between a and b in both directions, half-closing each
+// write side when the opposite read side reaches EOF, and closes both
+// connections when both directions are done.
+func pipe(a, b net.Conn) {
+	defer a.Close()
+	defer b.Close()
+	done := make(chan struct{})
+	go func() {
+		copyHalf(b, a)
+		close(done)
+	}()
+	copyHalf(a, b)
+	<-done
+}
+
+func copyHalf(dst, src net.Conn) {
+	if _, err := io.Copy(dst, src); err != nil && !errors.Is(err, net.ErrClosed) {
+		log.Println(err)
+	}
+	if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+		cw.CloseWrite()
+	} else {
+		dst.Close()
 	}
 }
 

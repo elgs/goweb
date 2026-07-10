@@ -9,16 +9,18 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 )
 
-var dev = os.Getenv("env") == "dev"
-
-//go:embed gowebadmin/dist
+//go:embed gowebadmin
 var gowebadmin embed.FS
 
-func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) bool {
+// authorize handles CORS headers and validates the admin access token. It
+// returns true when the caller should continue handling the request, false
+// when the request has been fully handled (CORS preflight or rejected).
+func authorize(secret string, w http.ResponseWriter, r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == fmt.Sprintf("http://%v:%v", host, port) || origin == fmt.Sprintf("https://%v:%v", host, port) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -26,8 +28,8 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 	}
 	w.Header().Set("Access-Control-Allow-Methods", r.Header.Get("Access-Control-Request-Method"))
 	w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
-	if r.Method == "OPTIONS" {
-		return true
+	if r.Method == http.MethodOptions {
+		return false
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	token := r.Header.Get("authorization")
@@ -35,9 +37,9 @@ func CheckAccessToken(secret string, w http.ResponseWriter, r *http.Request) boo
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"err": "Invalid access token."})
 		log.Println("Invalid access token.")
-		return true
+		return false
 	}
-	return false
+	return true
 }
 
 func LoadServersFromRequestBody(r *http.Request) ([]*Server, error) {
@@ -72,12 +74,11 @@ func StartAdmin() error {
 	listen := fmt.Sprintf("%v:%v", host, port)
 
 	mux := http.NewServeMux()
-	sub, err := fs.Sub(gowebadmin, "gowebadmin/dist")
+	sub, err := fs.Sub(gowebadmin, "gowebadmin")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	writeErr := func(w http.ResponseWriter, status int, err error) {
@@ -87,7 +88,7 @@ func StartAdmin() error {
 	}
 
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
-		if CheckAccessToken(secret, w, r) {
+		if !authorize(secret, w, r) {
 			return
 		}
 
@@ -103,10 +104,8 @@ func StartAdmin() error {
 			defer mu.Unlock()
 			oldServers := servers
 			for _, server := range oldServers {
-				err := server.Shutdown()
-				if err != nil {
-					writeErr(w, http.StatusBadRequest, err)
-					return
+				if err := server.Shutdown(); err != nil {
+					log.Println(err)
 				}
 			}
 			for _, server := range _servers {
@@ -114,11 +113,15 @@ func StartAdmin() error {
 				if err != nil {
 					// rollback: shut down new servers that started
 					for _, s := range _servers {
-						s.Shutdown()
+						if err := s.Shutdown(); err != nil {
+							log.Println(err)
+						}
 					}
 					// restore old servers
 					for _, s := range oldServers {
-						s.Start()
+						if err := s.Start(); err != nil {
+							log.Println("Failed to restore server:", err)
+						}
 					}
 					writeErr(w, http.StatusBadRequest, err)
 					return
@@ -134,15 +137,25 @@ func StartAdmin() error {
 				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
-			var formattedServersJSONBuffer bytes.Buffer
-			err = json.Indent(&formattedServersJSONBuffer, body, "", "  ")
-			if err != nil {
+			var _servers []*Server
+			if err := json.Unmarshal(body, &_servers); err != nil {
 				writeErr(w, http.StatusBadRequest, err)
 				return
 			}
-			err = os.WriteFile(*confPath, formattedServersJSONBuffer.Bytes(), 0644)
-			if err != nil {
+			var formattedServersJSONBuffer bytes.Buffer
+			if err := json.Indent(&formattedServersJSONBuffer, body, "", "  "); err != nil {
 				writeErr(w, http.StatusBadRequest, err)
+				return
+			}
+			// write to a temp file and rename so a failure mid-write cannot
+			// truncate the existing config
+			tmpPath := *confPath + ".tmp"
+			if err := os.WriteFile(tmpPath, formattedServersJSONBuffer.Bytes(), 0644); err != nil {
+				writeErr(w, http.StatusInternalServerError, err)
+				return
+			}
+			if err := os.Rename(tmpPath, *confPath); err != nil {
+				writeErr(w, http.StatusInternalServerError, err)
 				return
 			}
 			fmt.Fprint(w, "{}")
@@ -152,7 +165,7 @@ func StartAdmin() error {
 			b, err := json.Marshal(servers)
 			mu.Unlock()
 			if err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, http.StatusInternalServerError, err)
 				return
 			}
 			w.Write(b)
@@ -160,7 +173,7 @@ func StartAdmin() error {
 	})
 
 	mux.HandleFunc("/api/server/", func(w http.ResponseWriter, r *http.Request) {
-		if CheckAccessToken(secret, w, r) {
+		if !authorize(secret, w, r) {
 			return
 		}
 
@@ -190,6 +203,10 @@ func StartAdmin() error {
 					}
 					err = _server.Start()
 					if err != nil {
+						// rollback: bring the old server back up
+						if rbErr := server.Start(); rbErr != nil {
+							log.Println("Failed to restore server:", rbErr)
+						}
 						writeErr(w, http.StatusBadRequest, err)
 						return
 					}
@@ -209,10 +226,18 @@ func StartAdmin() error {
 		}
 	})
 
+	listener, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 	go func() {
-		err := http.ListenAndServe(listen, mux)
-		if err != nil {
-			log.Fatal(err)
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Println(err)
 		}
 	}()
 	log.Printf("Web admin url: http://%v/\n", listen)

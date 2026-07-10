@@ -4,20 +4,19 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"sync/atomic"
+	"net/http/httputil"
 )
 
 type Server struct {
-	Name         string  `json:"name"`
-	Type         string  `json:"type"` // http, https, tcp
-	Listen       string  `json:"listen"`
-	Disabled     bool    `json:"disabled"`
-	Hosts        []*Host `json:"hosts"`
-	hostMap      map[string]*Host
-	httpServer   *http.Server
-	tcpListener  net.Listener
-	tcpListening atomic.Bool
-	Status       string `json:"status"`
+	Name       string  `json:"name"`
+	Type       string  `json:"type"` // http, https, tcp
+	Listen     string  `json:"listen"`
+	Disabled   bool    `json:"disabled"`
+	Hosts      []*Host `json:"hosts"`
+	hostMap    map[string]*Host
+	httpServer *http.Server
+	listener   net.Listener
+	Status     string `json:"status"`
 }
 
 type Host struct {
@@ -33,6 +32,9 @@ type Host struct {
 	DisableDirListing bool   `json:"disable_dir_listing"`
 	Status            string `json:"status"`
 	AllowedOrigins    string `json:"allowed_origins"`
+
+	fileServer     http.Handler             // built by Start for type serve_static
+	forwardProxies []*httputil.ReverseProxy // built by Start for type reverse_proxy
 }
 
 func NewConfig(confBytes []byte) ([]*Server, error) {

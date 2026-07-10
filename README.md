@@ -184,11 +184,11 @@ $ rm -rf $HOME/go/bin/goweb
     "hosts": [
       {
         "name": "server1",
-        "upstream": "192.168.0.1"
+        "upstream": "192.168.0.1:1234"
       },
       {
         "name": "server2",
-        "upstream": "192.168.0.2"
+        "upstream": "192.168.0.2:1234"
       }
     ]
   }
