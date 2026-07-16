@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -35,15 +35,12 @@ var secret = getEnv("GOWEB_ADMIN_TOKEN", "")
 var host = getEnv("GOWEB_ADMIN_HOST", "localhost")
 var port = getEnv("GOWEB_ADMIN_PORT", "13579")
 
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
-
 var mu sync.Mutex
 var servers []*Server
 var confPath *string
 
 func main() {
+	setupLogging()
 	v := flag.Bool("v", false, "prints version")
 	confPath = flag.String("c", "goweb.json", "configuration file path")
 	flag.Parse()
@@ -53,35 +50,38 @@ func main() {
 	}
 	confBytes, err := os.ReadFile(*confPath)
 	if err != nil {
-		log.Fatalln(err)
+		slog.Error("Failed to read config file", "err", err)
+		os.Exit(1)
 	}
 
 	servers, err = NewConfig(confBytes)
 	if err != nil {
-		log.Fatalln(err)
+		slog.Error("Failed to parse config file", "path", *confPath, "err", err)
+		os.Exit(1)
 	}
 
 	for _, server := range servers {
 		err := server.Start()
 		if err != nil {
-			log.Println(err)
+			slog.Error("Failed to start server", "server", server.Name, "err", err)
 		}
 	}
 
 	if secret != "" {
 		err = StartAdmin()
 		if err != nil {
-			log.Println("Failed to start admin server:", err)
+			slog.Error("Failed to start admin server", "err", err)
 		}
 	}
 
 	Hook(func() {
+		slog.Info("Shutting down")
 		mu.Lock()
 		defer mu.Unlock()
 		for _, server := range servers {
 			err := server.Shutdown()
 			if err != nil {
-				log.Println(err)
+				slog.Error("Failed to shut down server", "server", server.Name, "err", err)
 			}
 		}
 	})
@@ -99,6 +99,7 @@ func (this *Server) Shutdown() error {
 				// graceful shutdown failed or timed out; force-close
 				this.httpServer.Close()
 			}
+			slog.Info("Server stopped", "server", this.Name, "type", this.Type, "listen", this.Listen)
 		}
 		if this.listener != nil {
 			// usually already closed by httpServer.Shutdown; this covers the
@@ -109,7 +110,7 @@ func (this *Server) Shutdown() error {
 	case "tcp":
 		if this.listener != nil {
 			this.listener.Close()
-			log.Printf("%v: Server closed %v", this.Type, this.Listen)
+			slog.Info("Server stopped", "server", this.Name, "type", this.Type, "listen", this.Listen)
 		}
 	}
 	return nil
@@ -186,6 +187,10 @@ func (this *Server) startHTTP() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", this.handle)
+	var handler http.Handler = mux
+	if this.AccessLog {
+		handler = this.logAccess(mux)
+	}
 
 	listener, err := net.Listen("tcp", this.Listen)
 	if err != nil {
@@ -195,10 +200,11 @@ func (this *Server) startHTTP() error {
 	this.listener = listener
 
 	srv := &http.Server{
-		Handler:           mux,
+		Handler:           handler,
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
+		ErrorLog:          httpErrorLog(),
 	}
 	this.httpServer = srv
 
@@ -211,10 +217,10 @@ func (this *Server) startHTTP() error {
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			this.Status = fmt.Sprintf("%v for server: %v, %v", err, this.Name, this.Listen)
-			log.Println(this.Status)
+			slog.Error("Server failed", "server", this.Name, "listen", this.Listen, "err", err)
 		}
 	}()
-	log.Printf("Listening on %v://%v/\n", this.Type, this.Listen)
+	slog.Info("Server listening", "server", this.Name, "type", this.Type, "listen", this.Listen)
 	return nil
 }
 
@@ -291,7 +297,18 @@ func (host *Host) buildProxies() error {
 				return nil
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-				log.Println(err)
+				level := slog.LevelError
+				if errors.Is(err, context.Canceled) {
+					// the client went away mid-request, not an upstream failure
+					level = slog.LevelDebug
+				}
+				slog.Log(r.Context(), level, "Proxy error",
+					"host", host.Name,
+					"upstream", target.String(),
+					"method", r.Method,
+					"uri", r.RequestURI,
+					"client", clientIP(r.RemoteAddr),
+					"err", err)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(http.StatusBadGateway)
 				fmt.Fprint(w, `{"err":"bad gateway"}`)
@@ -393,13 +410,14 @@ func (this *Server) startTCP() error {
 		return errors.New(this.Status)
 	}
 	this.listener = listener
-	log.Printf("Listening on %v %v\n", this.Type, this.Listen)
+	slog.Info("Server listening", "server", this.Name, "type", this.Type, "listen", this.Listen)
 
-	go acceptTCP(listener, enabledHosts)
+	go this.acceptTCP(listener, enabledHosts)
 	return nil
 }
 
-func acceptTCP(listener net.Listener, enabledHosts []*Host) {
+func (this *Server) acceptTCP(listener net.Listener, enabledHosts []*Host) {
+	logger := slog.With("server", this.Name, "listen", this.Listen)
 	var delay time.Duration
 	for {
 		connLocal, err := listener.Accept()
@@ -416,21 +434,36 @@ func acceptTCP(listener net.Listener, enabledHosts []*Host) {
 			if delay > time.Second {
 				delay = time.Second
 			}
-			log.Println(err)
+			logger.Warn("Accept failed", "err", err)
 			time.Sleep(delay)
 			continue
 		}
 		delay = 0
 
 		go func() {
-			enabledHost := enabledHosts[hashIndex(clientIP(connLocal.RemoteAddr().String()), len(enabledHosts))]
+			client := connLocal.RemoteAddr().String()
+			enabledHost := enabledHosts[hashIndex(clientIP(client), len(enabledHosts))]
+			connLogger := logger.With("host", enabledHost.Name, "upstream", enabledHost.Upstream, "client", client)
 			connDst, err := net.Dial("tcp", enabledHost.Upstream)
 			if err != nil {
-				log.Println(err)
+				connLogger.Error("Failed to connect to upstream", "err", err)
 				connLocal.Close()
 				return
 			}
-			pipe(connLocal, connDst)
+			connLogger.Debug("Connection opened")
+			start := time.Now()
+			sent, received := pipe(connLocal, connDst, connLogger)
+			if this.AccessLog {
+				accessLog.Info("connection",
+					"server", this.Name,
+					"host", enabledHost.Name,
+					"client", client,
+					"upstream", enabledHost.Upstream,
+					"duration_ms", durationMs(start),
+					"bytes_sent", sent,
+					"bytes_received", received,
+				)
+			}
 		}()
 	}
 }
@@ -450,30 +483,39 @@ func Hook(clean func()) {
 	<-done
 }
 
-// pipe copies data between a and b in both directions, half-closing each
-// write side when the opposite read side reaches EOF, and closes both
-// connections when both directions are done.
-func pipe(a, b net.Conn) {
-	defer a.Close()
-	defer b.Close()
+// pipe copies data between client and upstream in both directions,
+// half-closing each write side when the opposite read side reaches EOF, and
+// closes both connections when both directions are done. It returns the bytes
+// sent to and received from the client.
+func pipe(client, upstream net.Conn, logger *slog.Logger) (sent, received int64) {
+	defer client.Close()
+	defer upstream.Close()
 	done := make(chan struct{})
 	go func() {
-		copyHalf(b, a)
+		received = copyHalf(upstream, client, logger)
 		close(done)
 	}()
-	copyHalf(a, b)
+	sent = copyHalf(client, upstream, logger)
 	<-done
+	return sent, received
 }
 
-func copyHalf(dst, src net.Conn) {
-	if _, err := io.Copy(dst, src); err != nil && !errors.Is(err, net.ErrClosed) {
-		log.Println(err)
+func copyHalf(dst, src net.Conn, logger *slog.Logger) int64 {
+	n, err := io.Copy(dst, src)
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		if errors.Is(err, syscall.ECONNRESET) {
+			// routine teardown: one side dropped without a clean close
+			logger.Debug("Connection reset", "err", err)
+		} else {
+			logger.Warn("Copy failed", "err", err)
+		}
 	}
 	if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 		cw.CloseWrite()
 	} else {
 		dst.Close()
 	}
+	return n
 }
 
 func getEnv(key, def string) string {

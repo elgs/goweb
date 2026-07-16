@@ -12,6 +12,7 @@ type Server struct {
 	Type       string  `json:"type"` // http, https, tcp
 	Listen     string  `json:"listen"`
 	Disabled   bool    `json:"disabled"`
+	AccessLog  bool    `json:"access_log"` // one record per request/connection on stdout
 	Hosts      []*Host `json:"hosts"`
 	hostMap    map[string]*Host
 	httpServer *http.Server

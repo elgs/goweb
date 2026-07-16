@@ -227,13 +227,14 @@ $ rm -rf $HOME/go/bin/goweb
 
 #### Server
 
-| Field    | Type   | Descriptions                                   | Examples                                  |
-| -------- | ------ | ---------------------------------------------- | ----------------------------------------- |
-| name     | string | Name of the server. Please make it unique      | `443`, `80`, `my_server`                  |
-| type     | string | `http`, `https` or `tcp`                       | `http`, `https`, `tcp`                    |
-| listen   | string | Host and port the server listens on.           | `127.0.0.1:80`, `0.0.0.0:443`, `[::]:443` |
-| disabled | bool   | True to disable the server, defaults to false. | `false`, `true`                           |
-| hosts    | array  | A list of hosts the server is hosting.         | See the host definition.                  |
+| Field      | Type   | Descriptions                                                                                       | Examples                                  |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| name       | string | Name of the server. Please make it unique                                                          | `443`, `80`, `my_server`                  |
+| type       | string | `http`, `https` or `tcp`                                                                           | `http`, `https`, `tcp`                    |
+| listen     | string | Host and port the server listens on.                                                               | `127.0.0.1:80`, `0.0.0.0:443`, `[::]:443` |
+| disabled   | bool   | True to disable the server, defaults to false.                                                     | `false`, `true`                           |
+| access_log | bool   | True to log one record per request (http/https) or connection (tcp) to stdout. Defaults to false. | `false`, `true`                           |
+| hosts      | array  | A list of hosts the server is hosting.                                                             | See the host definition.                  |
 
 #### Host
 
@@ -251,9 +252,61 @@ $ rm -rf $HOME/go/bin/goweb
 | disabled            | bool   | True to disable the host. Defaults to false.                                         | `false`, `true`                                      |
 | allowed_origins     | string | Value for the `Access-Control-Allow-Origin` header. Leave empty to omit the header.  | `*`, `https://example.com`                           |
 
+## Logging
+
+goweb writes two separate streams:
+
+- **Diagnostics** (startup, shutdown, errors, admin audit events) go to **stderr**.
+- **Access records** (one per request or connection) go to **stdout**, only for servers configured with `"access_log": true`.
+
+Under systemd both streams land in the journal (`journalctl -u goweb`). To keep them in separate files, redirect the streams and rotate with logrotate:
+
+```sh
+$ goweb -c goweb.json >> /var/log/goweb/access.log 2>> /var/log/goweb/goweb.log
+```
+
+### Logging Environment Variables
+
+- `GOWEB_LOG_LEVEL`: `debug`, `info`, `warn` or `error`. Defaults to `info`. At `debug`, records include the source file and line, and per-connection details are logged.
+- `GOWEB_LOG_FORMAT`: `text` or `json` (one JSON object per line, for log collectors). Defaults to `text`.
+
+### Access Logs
+
+Set `"access_log": true` on a server to log every request (`http`/`https`) or connection (`tcp`):
+
+```json
+[
+  {
+    "name": "http-80",
+    "type": "http",
+    "listen": "[::]:80",
+    "access_log": true,
+    "hosts": [
+      {
+        "name": "example.com",
+        "type": "serve_static",
+        "path": "/path/to/webroot"
+      }
+    ]
+  }
+]
+```
+
+An http/https record carries the matched server and host, client IP, method, URI, protocol, status, response body bytes and duration; websocket sessions are logged with status 101 when they end:
+
+```
+time=2026-07-16T11:39:13.715-07:00 level=INFO msg=access server=http-80 host=example.com client=203.0.113.7 method=GET uri=/hello.txt proto=HTTP/1.1 status=200 bytes=13 duration_ms=1.832 referer="" user_agent=curl/8.7.1
+```
+
+A tcp record carries the chosen upstream, duration and bytes in both directions:
+
+```
+time=2026-07-16T11:39:14.068-07:00 level=INFO msg=connection server=tcp-1234 host=server1 client=203.0.113.7:57498 upstream=192.168.0.1:1234 duration_ms=0.199 bytes_sent=9 bytes_received=9
+```
+
 ## Auto start with systemd
 
-Create service unit file `/etc/systemd/system/goweb.service` with the following content. You can set environment variables for the admin interface (such as GOWEB_ADMIN_TOKEN, GOWEB_ADMIN_HOST, and GOWEB_ADMIN_PORT) using the `Environment` or `EnvironmentFile` directives:
+Create service unit file `/etc/systemd/system/goweb.service` with the following content. You can set environment variables for the admin interface (such as GOWEB_ADMIN_TOKEN, GOWEB_ADMIN_HOST, and GOWEB_ADMIN_PORT) and for logging (GOWEB_LOG_LEVEL, GOWEB_LOG_FORMAT) using the `Environment` or `EnvironmentFile` directives:
 
 ```ini
 [Unit]

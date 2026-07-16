@@ -116,6 +116,7 @@ function cleanHost(server, host) {
 function cleanServer(s) {
   const out = { name: s.name || '', type: s.type || 'http', listen: s.listen || '' };
   if (s.disabled) out.disabled = true;
+  if (s.access_log) out.access_log = true;
   out.hosts = (s.hosts || []).map(h => cleanHost(s, h));
   return out;
 }
@@ -257,6 +258,8 @@ function serverCard(s, si) {
           ['http', 'http'], ['https', 'https'], ['tcp', 'tcp'],
         ], s.type)}</select>`)}
         ${field('Listen on', textInput('listen', s.listen, '[::]:443'), 'host:port; use [::] for all interfaces.')}
+        <div class="field-toggles">${toggle('access_log', !!s.access_log, 'Access log',
+          'Write one record per request or connection to stdout')}</div>
       </div>
       ${s.status ? `<div class="ui-alert danger">${esc(s.status)}</div>` : ''}
       <div class="hosts">

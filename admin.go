@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -36,7 +36,7 @@ func authorize(secret string, w http.ResponseWriter, r *http.Request) bool {
 	if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"err": "Invalid access token."})
-		log.Println("Invalid access token.")
+		slog.Warn("Invalid admin access token", "client", clientIP(r.RemoteAddr))
 		return false
 	}
 	return true
@@ -81,10 +81,15 @@ func StartAdmin() error {
 
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
-	writeErr := func(w http.ResponseWriter, status int, err error) {
+	writeErr := func(w http.ResponseWriter, r *http.Request, status int, err error) {
 		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]string{"err": err.Error()})
-		log.Println(err)
+		slog.Warn("Admin request failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"client", clientIP(r.RemoteAddr),
+			"status", status,
+			"err", err)
 	}
 
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +102,7 @@ func StartAdmin() error {
 			// apply servers
 			_servers, err := LoadServersFromRequestBody(r)
 			if err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, r, http.StatusBadRequest, err)
 				return
 			}
 			mu.Lock()
@@ -105,7 +110,7 @@ func StartAdmin() error {
 			oldServers := servers
 			for _, server := range oldServers {
 				if err := server.Shutdown(); err != nil {
-					log.Println(err)
+					slog.Error("Failed to shut down server", "server", server.Name, "err", err)
 				}
 			}
 			for _, server := range _servers {
@@ -114,50 +119,53 @@ func StartAdmin() error {
 					// rollback: shut down new servers that started
 					for _, s := range _servers {
 						if err := s.Shutdown(); err != nil {
-							log.Println(err)
+							slog.Error("Failed to shut down server", "server", s.Name, "err", err)
 						}
 					}
 					// restore old servers
 					for _, s := range oldServers {
 						if err := s.Start(); err != nil {
-							log.Println("Failed to restore server:", err)
+							slog.Error("Failed to restore server", "server", s.Name, "err", err)
 						}
 					}
-					writeErr(w, http.StatusBadRequest, err)
+					slog.Warn("Admin config apply rolled back", "client", clientIP(r.RemoteAddr), "err", err)
+					writeErr(w, r, http.StatusBadRequest, err)
 					return
 				}
 			}
 			servers = _servers
+			slog.Info("Admin applied config", "client", clientIP(r.RemoteAddr), "servers", len(_servers))
 			fmt.Fprint(w, "{}")
 		case http.MethodPost:
 			// save servers
 			defer r.Body.Close()
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, r, http.StatusBadRequest, err)
 				return
 			}
 			var _servers []*Server
 			if err := json.Unmarshal(body, &_servers); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, r, http.StatusBadRequest, err)
 				return
 			}
 			var formattedServersJSONBuffer bytes.Buffer
 			if err := json.Indent(&formattedServersJSONBuffer, body, "", "  "); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, r, http.StatusBadRequest, err)
 				return
 			}
 			// write to a temp file and rename so a failure mid-write cannot
 			// truncate the existing config
 			tmpPath := *confPath + ".tmp"
 			if err := os.WriteFile(tmpPath, formattedServersJSONBuffer.Bytes(), 0644); err != nil {
-				writeErr(w, http.StatusInternalServerError, err)
+				writeErr(w, r, http.StatusInternalServerError, err)
 				return
 			}
 			if err := os.Rename(tmpPath, *confPath); err != nil {
-				writeErr(w, http.StatusInternalServerError, err)
+				writeErr(w, r, http.StatusInternalServerError, err)
 				return
 			}
+			slog.Info("Admin saved config", "client", clientIP(r.RemoteAddr), "path", *confPath, "servers", len(_servers))
 			fmt.Fprint(w, "{}")
 		case http.MethodGet:
 			// get servers
@@ -165,7 +173,7 @@ func StartAdmin() error {
 			b, err := json.Marshal(servers)
 			mu.Unlock()
 			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err)
+				writeErr(w, r, http.StatusInternalServerError, err)
 				return
 			}
 			w.Write(b)
@@ -181,12 +189,12 @@ func StartAdmin() error {
 			// apply server
 			_server, err := LoadServerFromRequestBody(r)
 			if err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, r, http.StatusBadRequest, err)
 				return
 			}
 
 			if _server.Name == "" {
-				writeErr(w, http.StatusBadRequest, fmt.Errorf("Name is required"))
+				writeErr(w, r, http.StatusBadRequest, fmt.Errorf("Name is required"))
 				return
 			}
 
@@ -198,16 +206,16 @@ func StartAdmin() error {
 					newServer = false
 					err := server.Shutdown()
 					if err != nil {
-						writeErr(w, http.StatusBadRequest, err)
+						writeErr(w, r, http.StatusBadRequest, err)
 						return
 					}
 					err = _server.Start()
 					if err != nil {
 						// rollback: bring the old server back up
 						if rbErr := server.Start(); rbErr != nil {
-							log.Println("Failed to restore server:", rbErr)
+							slog.Error("Failed to restore server", "server", server.Name, "err", rbErr)
 						}
-						writeErr(w, http.StatusBadRequest, err)
+						writeErr(w, r, http.StatusBadRequest, err)
 						return
 					}
 					servers[serverIndex] = _server
@@ -217,11 +225,12 @@ func StartAdmin() error {
 			if newServer {
 				err := _server.Start()
 				if err != nil {
-					writeErr(w, http.StatusBadRequest, err)
+					writeErr(w, r, http.StatusBadRequest, err)
 					return
 				}
 				servers = append(servers, _server)
 			}
+			slog.Info("Admin applied server config", "client", clientIP(r.RemoteAddr), "server", _server.Name)
 			fmt.Fprint(w, "{}")
 		}
 	})
@@ -234,12 +243,13 @@ func StartAdmin() error {
 		Handler:           mux,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
+		ErrorLog:          httpErrorLog(),
 	}
 	go func() {
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Println(err)
+			slog.Error("Admin server failed", "err", err)
 		}
 	}()
-	log.Printf("Web admin url: http://%v/\n", listen)
+	slog.Info("Web admin listening", "url", fmt.Sprintf("http://%v/", listen))
 	return nil
 }
