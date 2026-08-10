@@ -177,12 +177,33 @@ func (this *Server) startHTTP() error {
 		if this.Type == "https" {
 			keyPair, err := tls.LoadX509KeyPair(host.CertPath, host.KeyPath)
 			if err != nil {
+				// Certificate files drift at runtime — a renewal can remove
+				// them with no config change — so an unloadable pair degrades
+				// this one host instead of failing the whole server. Every
+				// other host on the listener keeps working; TLS for this name
+				// fails until its files are fixed, unless another host's
+				// certificate happens to cover it.
 				host.Status = fmt.Sprintf("%v for host: %v, server: %v, %v", err, host.Name, this.Name, this.Listen)
-				return errors.New(host.Status)
+				level := slog.LevelError
+				if host.Disabled {
+					level = slog.LevelWarn
+				}
+				slog.Log(context.Background(), level, "Failed to load certificate, serving remaining hosts",
+					"host", host.Name, "server", this.Name, "listen", this.Listen, "err", err)
+			} else {
+				tlsConfig.Certificates = append(tlsConfig.Certificates, keyPair)
 			}
-			tlsConfig.Certificates = append(tlsConfig.Certificates, keyPair)
 		}
 		this.hostMap[normalizeHost(host.Name)] = host
+	}
+
+	// With no certificate at all there is nothing TLS can serve, and
+	// http.Server.ServeTLS would only fail after the port is bound, leaving
+	// clients to hang in the accept backlog. Fail while the port is still
+	// closed instead.
+	if this.Type == "https" && len(tlsConfig.Certificates) == 0 {
+		this.Status = fmt.Sprintf("No usable certificate for server: %v, %v", this.Name, this.Listen)
+		return errors.New(this.Status)
 	}
 
 	mux := http.NewServeMux()
