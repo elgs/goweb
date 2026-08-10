@@ -252,6 +252,8 @@ $ rm -rf $HOME/go/bin/goweb
 | disabled            | bool   | True to disable the host. Defaults to false.                                         | `false`, `true`                                      |
 | allowed_origins     | string | Value for the `Access-Control-Allow-Origin` header. Leave empty to omit the header.  | `*`, `https://example.com`                           |
 
+If a host's certificate files cannot be loaded, the error is logged and recorded in the host's `status`, and the server starts without that certificate — the remaining hosts keep serving. An `https` server with no loadable certificate at all fails to start.
+
 ## Logging
 
 goweb writes two separate streams:
