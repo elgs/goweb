@@ -3,18 +3,27 @@
 // ============================================
 // goweb admin — application logic
 // Plain JS, no build step, no dependencies.
+//
+// The UI is organized in three levels, routed
+// by location.hash so the browser back/forward
+// buttons and deep links work:
+//   #/            server list (overview)
+//   #/s/0         one server + its host list
+//   #/s/0/h/2     one host
 // ============================================
 
 // ---- state ---------------------------------
 
 let servers = [];        // working copy of the config
+let route = { view: 'servers' };
 let unapplied = false;   // differs from the running config
 let unsaved = false;     // differs from the config file on disk
 let busy = false;
 let pendingDeleteSi = -1;
+let focusNameOnRender = false;
 
 const byId = id => document.getElementById(id);
-const serversEl = () => byId('servers');
+const viewEl = () => byId('view');
 
 // ---- helpers -------------------------------
 
@@ -84,7 +93,6 @@ async function api(method, url, body) {
 function normalize(s) {
   const n = { ...s };
   n.hosts = Array.isArray(s.hosts) ? s.hosts.map(h => ({ ...h })) : [];
-  n._collapsed = false;
   n._origName = s.name || '';
   return n;
 }
@@ -129,7 +137,66 @@ function newHost(serverType) {
     : { name: '', type: 'serve_static', path: '' };
 }
 
-// ---- rendering -----------------------------
+// ---- routing -------------------------------
+
+const serverHash = si => `#/s/${si}`;
+const hostHash = (si, hi) => `#/s/${si}/h/${hi}`;
+
+function parseHash() {
+  const h = location.hash;
+  if (!h || h === '#' || h === '#/') return { view: 'servers' };
+  let m = h.match(/^#\/s\/(\d+)$/);
+  if (m && servers[+m[1]]) return { view: 'server', si: +m[1] };
+  m = h.match(/^#\/s\/(\d+)\/h\/(\d+)$/);
+  if (m && servers[+m[1]] && servers[+m[1]].hosts[+m[2]]) {
+    return { view: 'host', si: +m[1], hi: +m[2] };
+  }
+  return null;
+}
+
+function goTo(hash, replace) {
+  if ((location.hash || '#/') === hash) {
+    syncRoute();
+    return;
+  }
+  if (replace) location.replace(hash);
+  else location.hash = hash;
+}
+
+// Accept a token passed in the URL hash (#access_token=...): store it and
+// remove it from the URL. Returns true when one was found.
+function adoptTokenFromHash() {
+  const m = location.hash.match(/access_token=([^&]+)/);
+  if (!m) return false;
+  sessionStorage.setItem('access_token', decodeURIComponent(m[1]));
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+
+// Re-parse the hash against the current data and render. Falls back to the
+// nearest valid ancestor when the hash points at something that no longer
+// exists (deleted entry, replaced config, stale deep link).
+function syncRoute() {
+  if (adoptTokenFromHash() && byId('app').hidden) {
+    // a token URL was pasted into a tab showing the login screen — try it
+    loadServers().then(showApp).catch(err => {
+      showLogin();
+      if (err.status !== 401) toast('danger', err.message);
+    });
+    return;
+  }
+  const r = parseHash();
+  if (!r) {
+    const m = location.hash.match(/^#\/s\/(\d+)/);
+    location.replace(m && servers[+m[1]] ? serverHash(+m[1]) : '#/');
+    return;
+  }
+  const moved = r.view !== route.view || r.si !== route.si || r.hi !== route.hi;
+  route = r;
+  renderView(moved);
+}
+
+// ---- rendering: building blocks ------------
 
 const field = (label, inner, hint) =>
   `<div class="ui-field"><label>${label}</label>${inner}`
@@ -168,13 +235,177 @@ function hostTypeMeta(s, h) {
   }[h.type] || { label: h.type || 'unknown', icon: 'ui-icon-globe', badge: 'danger' };
 }
 
-function hostCard(s, h, si, hi) {
+function hostSummary(s, h) {
+  if (s.type === 'tcp') return h.upstream || 'no upstream set';
+  if (h.type === '301_redirect') return h.redirect_url || 'no redirect URL set';
+  if (h.type === 'reverse_proxy') return h.forward_urls || 'no forward URLs set';
+  return h.path || 'no web root set';
+}
+
+const nameOr = (name, fallback) =>
+  esc(name) || `<span class="ui-text-muted">${fallback}</span>`;
+
+// items: [{label, href}] — the last item is the current page; labels are
+// pre-escaped by the callers. actions: HTML for the right side of the bar.
+function crumbBar(items, actions) {
+  const lis = items.map((it, i) =>
+    i === items.length - 1
+      ? `<li aria-current="page"><span class="crumb-here" id="crumb-here">${it.label}</span></li>`
+      : `<li><a href="${it.href}">${it.label}</a></li>`
+  ).join('');
+  return `
+  <div class="crumb-bar">
+    <nav aria-label="Breadcrumb"><ul class="ui-breadcrumb">${lis}</ul></nav>
+    <div class="crumb-actions">${actions || ''}</div>
+  </div>`;
+}
+
+// ---- rendering: level 1 — server list ------
+
+function serverDot(s) {
+  if (s.disabled) return 'ui-dot';
+  if (s.status || (s.hosts || []).some(h => !h.disabled && h.status)) return 'ui-dot danger pulse';
+  return 'ui-dot success';
+}
+
+function serverRow(s, si) {
+  const typeBadge = { https: 'success', http: '', tcp: 'secondary' }[s.type] ?? 'danger';
+  const n = (s.hosts || []).length;
+  const nErr = ((s.hosts || []).filter(h => !h.disabled && h.status).length) + (s.status ? 1 : 0);
+  return `
+  <div class="row ${s.disabled ? 'off' : ''}" data-si="${si}" data-nav="${serverHash(si)}" role="link" tabindex="0">
+    <span class="${serverDot(s)}"></span>
+    <div class="row-main">
+      <div class="row-title">
+        <span class="r-name">${nameOr(s.name, 'unnamed server')}</span>
+        <span class="ui-badge sm outline ${typeBadge}">${esc(s.type || '?')}</span>
+      </div>
+      <div class="row-sub">
+        <code class="listen">${esc(s.listen) || '—'}</code>
+        <span>${n} host${n === 1 ? '' : 's'}</span>
+        ${nErr ? `<span class="err-note">${nErr} error${nErr === 1 ? '' : 's'}</span>` : ''}
+      </div>
+    </div>
+    ${toggle('enabled', !s.disabled, '', 'Enabled')}
+    <button class="ui-btn ghost icon sm" data-action="del-server" title="Delete server">
+      <i class="ui-icon ui-icon-trash"></i>
+    </button>
+    <i class="ui-icon ui-icon-chevron-right row-go"></i>
+  </div>`;
+}
+
+function viewServers() {
+  if (servers.length === 0) {
+    return `
+    <div class="empty">
+      <i class="ui-icon ui-icon-server"></i>
+      <h2>No servers configured</h2>
+      <p>Add your first server to start serving websites.</p>
+      <button class="ui-btn" data-action="add-server"><i class="ui-icon ui-icon-plus"></i>Add server</button>
+    </div>`;
+  }
+  return `
+  <div class="page">
+    <div class="page-head">
+      <h2>Servers</h2>
+      <span class="ui-badge secondary outline">${servers.length}</span>
+      <span class="spacer"></span>
+      <button class="ui-btn sm" data-action="add-server">
+        <i class="ui-icon ui-icon-plus"></i><span class="btn-label">Add server</span>
+      </button>
+    </div>
+    <div class="ui-card elevated rows-card">
+      <div class="rows">${servers.map(serverRow).join('')}</div>
+    </div>
+  </div>`;
+}
+
+// ---- rendering: level 2 — one server -------
+
+function hostRow(s, h, si, hi) {
   const meta = hostTypeMeta(s, h);
+  const openable = s.type !== 'tcp' && h.name;
+  const dot = h.disabled ? 'ui-dot' : (h.status ? 'ui-dot danger pulse' : 'ui-dot success');
+  return `
+  <div class="row ${h.disabled ? 'off' : ''}" data-hi="${hi}" data-nav="${hostHash(si, hi)}" role="link" tabindex="0">
+    <span class="${dot}"></span>
+    <i class="ui-icon ${meta.icon} r-icon"></i>
+    <div class="row-main">
+      <div class="row-title">
+        <span class="r-name">${nameOr(h.name, 'unnamed host')}</span>
+        <span class="ui-badge sm outline ${meta.badge}">${esc(meta.label)}</span>
+      </div>
+      <div class="row-sub"><span class="r-target">${esc(hostSummary(s, h))}</span></div>
+    </div>
+    ${openable ? `<a class="ui-btn ghost icon sm" href="${esc(openURL(s, h))}" target="_blank"
+      rel="noopener" title="Open in browser"><i class="ui-icon ui-icon-external-link"></i></a>` : ''}
+    ${toggle('enabled', !h.disabled, '', 'Enabled')}
+    <button class="ui-btn ghost icon sm" data-action="del-host" title="Delete host">
+      <i class="ui-icon ui-icon-trash"></i>
+    </button>
+    <i class="ui-icon ui-icon-chevron-right row-go"></i>
+  </div>`;
+}
+
+function viewServer(si) {
+  const s = servers[si];
+  const renamed = !!s._origName && s.name !== s._origName;
+  const n = (s.hosts || []).length;
+  const rows = (s.hosts || []).map((h, hi) => hostRow(s, h, si, hi)).join('')
+    || '<p class="rows-empty ui-text-muted">No hosts yet — add one to serve something.</p>';
+  return `
+  <div class="page" data-si="${si}">
+    ${crumbBar(
+      [{ label: 'Servers', href: '#/' }, { label: nameOr(s.name, 'unnamed server') }],
+      `<button class="ui-btn ghost sm ui-tooltip bottom" data-action="apply-one" ${renamed ? 'disabled' : ''}
+        data-tooltip="${renamed ? 'Renamed servers need a full Apply' : 'Apply only this server to the running config'}">
+        <i class="ui-icon ui-icon-zap"></i><span class="btn-label">Apply server</span>
+      </button>
+      <button class="ui-btn ghost icon sm" data-action="del-server" title="Delete server">
+        <i class="ui-icon ui-icon-trash"></i>
+      </button>`
+    )}
+    <section class="ui-card elevated pane">
+      <h3 class="pane-title">Server settings</h3>
+      <div class="grid">
+        ${field('Server name', textInput('name', s.name, 'my-server'))}
+        ${field('Server type', `<select class="ui-select" data-f="type">${options([
+          ['http', 'http'], ['https', 'https'], ['tcp', 'tcp'],
+        ], s.type)}</select>`)}
+        ${field('Listen on', textInput('listen', s.listen, '[::]:443'), 'host:port; use [::] for all interfaces.')}
+        <div class="field-toggles">
+          ${toggle('enabled', !s.disabled, 'Enabled')}
+          ${toggle('access_log', !!s.access_log, 'Access log',
+            'Write one record per request or connection to stdout')}
+        </div>
+      </div>
+      ${s.status ? `<div class="ui-alert danger">${esc(s.status)}</div>` : ''}
+    </section>
+    <section class="ui-card elevated rows-card">
+      <div class="pane-head">
+        <h3 class="pane-title">Hosts</h3>
+        <span class="ui-badge secondary outline">${n}</span>
+        <span class="spacer"></span>
+        <button class="ui-btn ghost sm" data-action="add-host">
+          <i class="ui-icon ui-icon-plus"></i><span class="btn-label">Add host</span>
+        </button>
+      </div>
+      <div class="rows">${rows}</div>
+    </section>
+  </div>`;
+}
+
+// ---- rendering: level 3 — one host ---------
+
+function viewHost(si, hi) {
+  const s = servers[si];
+  const h = s.hosts[hi];
   const isWeb = s.type !== 'tcp';
   const openable = isWeb && h.name;
 
   let fields = field('Host name', textInput('name', h.name, isWeb ? 'example.com' : 'upstream-1'),
     isWeb ? 'Domain name matched against the request Host header.' : 'A label for this upstream.');
+  let toggles = toggle('enabled', !h.disabled, 'Enabled');
   if (isWeb) {
     fields += field('Host type', `<select class="ui-select" data-f="type">${options([
       ['serve_static', 'Static files'],
@@ -197,95 +428,50 @@ function hostCard(s, h, si, hi) {
     fields += field('Allowed origins', textInput('allowed_origins', h.allowed_origins, '*'),
       'Access-Control-Allow-Origin header; empty to omit.');
     if (h.type === 'serve_static' || !h.type) {
-      fields += `<div class="field-toggles">${toggle('dirlist', !h.disable_dir_listing, 'Directory listing',
-        'Show a directory listing when no index.html is present')}</div>`;
+      toggles += toggle('dirlist', !h.disable_dir_listing, 'Directory listing',
+        'Show a directory listing when no index.html is present');
     }
   } else {
     fields += field('Upstream', textInput('upstream', h.upstream, '10.0.0.1:5432'),
       'TCP address (host:port) to forward connections to.');
   }
+  fields += `<div class="field-toggles">${toggles}</div>`;
 
   return `
-  <div class="host ${h.disabled ? 'off' : ''}" data-hi="${hi}">
-    <div class="host-head">
-      <i class="ui-icon ${meta.icon} h-icon"></i>
-      <span class="h-name">${esc(h.name) || '<span class="ui-text-muted">unnamed host</span>'}</span>
-      <span class="ui-badge sm outline ${meta.badge}">${esc(meta.label)}</span>
-      <div class="head-controls">
-        ${openable ? `<a class="ui-btn ghost icon sm" href="${esc(openURL(s, h))}" target="_blank"
-          rel="noopener" title="Open in browser"><i class="ui-icon ui-icon-external-link"></i></a>` : ''}
-        ${toggle('enabled', !h.disabled, '', 'Enabled')}
-        <button class="ui-btn ghost icon sm" data-action="del-host" title="Delete host">
-          <i class="ui-icon ui-icon-trash"></i>
-        </button>
-      </div>
-    </div>
-    <div class="host-fields grid">${fields}</div>
-    ${h.status ? `<div class="ui-alert danger">${esc(h.status)}</div>` : ''}
+  <div class="page" data-si="${si}">
+    ${crumbBar(
+      [
+        { label: 'Servers', href: '#/' },
+        { label: nameOr(s.name, 'unnamed server'), href: serverHash(si) },
+        { label: nameOr(h.name, 'unnamed host') },
+      ],
+      `${openable ? `<a class="ui-btn ghost sm" href="${esc(openURL(s, h))}" target="_blank" rel="noopener">
+        <i class="ui-icon ui-icon-external-link"></i><span class="btn-label">Open</span></a>` : ''}
+      <button class="ui-btn ghost icon sm" data-action="del-host" title="Delete host">
+        <i class="ui-icon ui-icon-trash"></i>
+      </button>`
+    )}
+    <section class="ui-card elevated pane" data-hi="${hi}">
+      <h3 class="pane-title">Host settings</h3>
+      <div class="grid">${fields}</div>
+      ${h.status ? `<div class="ui-alert danger">${esc(h.status)}</div>` : ''}
+    </section>
   </div>`;
 }
 
-function serverCard(s, si) {
-  const dot = s.disabled ? 'ui-dot' : (s.status ? 'ui-dot danger pulse' : 'ui-dot success');
-  const typeBadge = { https: 'success', http: '', tcp: 'secondary' }[s.type] ?? 'danger';
-  const renamed = s._origName && s.name !== s._origName;
+// ---- rendering: dispatch -------------------
 
-  return `
-  <section class="ui-card elevated server ${s.disabled ? 'off' : ''} ${s._collapsed ? 'collapsed' : ''}" data-si="${si}">
-    <div class="server-head">
-      <div class="head-main" data-action="collapse">
-        <i class="ui-icon ui-icon-chevron-down caret"></i>
-        <span class="${dot}"></span>
-        <span class="s-name">${esc(s.name) || '<span class="ui-text-muted">unnamed server</span>'}</span>
-        <span class="ui-badge outline ${typeBadge}">${esc(s.type || '?')}</span>
-        <code class="listen s-listen">${esc(s.listen) || '—'}</code>
-      </div>
-      <div class="head-controls">
-        ${toggle('enabled', !s.disabled, '', 'Enabled')}
-        <button class="ui-btn ghost icon sm ui-tooltip bottom" data-action="apply-one" ${renamed ? 'disabled' : ''}
-          data-tooltip="${renamed ? 'Renamed servers need a full Apply' : 'Apply only this server'}">
-          <i class="ui-icon ui-icon-zap"></i>
-        </button>
-        <button class="ui-btn ghost icon sm" data-action="del-server" title="Delete server">
-          <i class="ui-icon ui-icon-trash"></i>
-        </button>
-      </div>
-    </div>
-    <div class="server-body" ${s._collapsed ? 'hidden' : ''}>
-      <div class="grid">
-        ${field('Server name', textInput('name', s.name, 'my-server'))}
-        ${field('Server type', `<select class="ui-select" data-f="type">${options([
-          ['http', 'http'], ['https', 'https'], ['tcp', 'tcp'],
-        ], s.type)}</select>`)}
-        ${field('Listen on', textInput('listen', s.listen, '[::]:443'), 'host:port; use [::] for all interfaces.')}
-        <div class="field-toggles">${toggle('access_log', !!s.access_log, 'Access log',
-          'Write one record per request or connection to stdout')}</div>
-      </div>
-      ${s.status ? `<div class="ui-alert danger">${esc(s.status)}</div>` : ''}
-      <div class="hosts">
-        <div class="hosts-head">
-          <h3>Hosts</h3>
-          <button class="ui-btn ghost sm" data-action="add-host"><i class="ui-icon ui-icon-plus"></i>Add host</button>
-        </div>
-        ${(s.hosts || []).map((h, hi) => hostCard(s, h, si, hi)).join('')}
-        ${(s.hosts || []).length === 0 ? '<p class="ui-text-muted">No hosts yet — add one to serve something.</p>' : ''}
-      </div>
-    </div>
-  </section>`;
-}
-
-function renderServers() {
-  if (servers.length === 0) {
-    serversEl().innerHTML = `
-    <div class="empty">
-      <i class="ui-icon ui-icon-server"></i>
-      <h2>No servers configured</h2>
-      <p>Add your first server to start serving websites.</p>
-      <button class="ui-btn" data-action="add-server"><i class="ui-icon ui-icon-plus"></i>Add server</button>
-    </div>`;
-    return;
+function renderView(scrollTop) {
+  const el = viewEl();
+  if (route.view === 'server') el.innerHTML = viewServer(route.si);
+  else if (route.view === 'host') el.innerHTML = viewHost(route.si, route.hi);
+  else el.innerHTML = viewServers();
+  if (scrollTop) window.scrollTo(0, 0);
+  if (focusNameOnRender) {
+    focusNameOnRender = false;
+    const inp = el.querySelector('input[data-f="name"]');
+    if (inp) inp.focus();
   }
-  serversEl().innerHTML = servers.map(serverCard).join('');
 }
 
 function updateBadges() {
@@ -346,7 +532,7 @@ async function loadServers() {
   const data = await api('GET', '/api/servers/');
   servers = (data || []).map(normalize);
   unapplied = unsaved = false;
-  renderServers();
+  syncRoute();
   updateBadges();
 }
 
@@ -377,7 +563,7 @@ function applyOne(btn, si) {
     s._origName = s.name;
     s.status = '';
     s.hosts.forEach(h => { h.status = ''; });
-    renderServers();
+    renderView();
     toast('success', `Server “${s.name || 'unnamed'}” applied.`);
   });
 }
@@ -385,10 +571,15 @@ function applyOne(btn, si) {
 function addServer() {
   servers.push(normalize({ name: '', type: 'http', listen: '[::]:80', hosts: [newHost('http')] }));
   markDirty();
-  renderServers();
-  const card = serversEl().querySelector(`[data-si="${servers.length - 1}"]`);
-  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  card.querySelector('input[data-f="name"]').focus();
+  focusNameOnRender = true;
+  goTo(serverHash(servers.length - 1));
+}
+
+function addHost(s, si) {
+  s.hosts.push(newHost(s.type));
+  markDirty();
+  focusNameOnRender = true;
+  goTo(hostHash(si, s.hosts.length - 1));
 }
 
 function login(btn) {
@@ -441,7 +632,7 @@ function useJSON() {
     servers = parsed.map(normalize);
     closeDialog('dlg-json');
     markDirty();
-    renderServers();
+    goTo('#/', true);
     toast('info', 'Config loaded into the editor — review, then Apply or Save.');
   } catch (err) {
     errEl.textContent = err.message;
@@ -489,35 +680,44 @@ function setField(s, h, f, el) {
   }
 }
 
+// Find the server/host an element belongs to. List rows carry data-si /
+// data-hi; on detail pages the page root carries data-si and the host pane
+// data-hi, with the route filling in whatever the DOM doesn't provide
+// (e.g. crumb-bar actions on the host page).
 function resolveTarget(el) {
   const card = el.closest('[data-si]');
-  if (!card) return {};
-  const s = servers[+card.dataset.si];
+  const si = card ? +card.dataset.si : (route.view !== 'servers' ? route.si : -1);
+  const s = si >= 0 ? servers[si] : null;
   const hostEl = el.closest('[data-hi]');
-  const h = hostEl && s ? s.hosts[+hostEl.dataset.hi] : null;
-  return { card, hostEl, s, h, si: +card.dataset.si, hi: hostEl ? +hostEl.dataset.hi : -1 };
+  const hi = hostEl ? +hostEl.dataset.hi : (route.view === 'host' ? route.hi : -1);
+  const h = s && hi >= 0 ? s.hosts[hi] : null;
+  return { s, h, si, hi };
 }
 
 function onInput(e) {
   const el = e.target;
   if (!el.dataset.f || el.matches('select, input[type="checkbox"]')) return;
-  const { card, hostEl, s, h } = resolveTarget(el);
+  const { s, h } = resolveTarget(el);
   if (!s) return;
   setField(s, h, el.dataset.f, el);
   markDirty();
-  // live header updates without a re-render (keeps typing focus)
-  if (!h && el.dataset.f === 'name') {
-    card.querySelector('.s-name').innerHTML = esc(s.name) || '<span class="ui-text-muted">unnamed server</span>';
-    const applyBtn = card.querySelector('[data-action="apply-one"]');
-    const renamed = !!s._origName && s.name !== s._origName;
-    applyBtn.toggleAttribute('disabled', renamed);
-    applyBtn.dataset.tooltip = renamed ? 'Renamed servers need a full Apply' : 'Apply only this server';
-  } else if (!h && el.dataset.f === 'listen') {
-    card.querySelector('.s-listen').textContent = s.listen || '—';
-  } else if (h && el.dataset.f === 'name') {
-    hostEl.querySelector('.h-name').innerHTML = esc(h.name) || '<span class="ui-text-muted">unnamed host</span>';
-    const a = hostEl.querySelector('.head-controls a');
-    if (a) a.href = openURL(s, h);
+  // live updates without a re-render (keeps typing focus)
+  if (el.dataset.f === 'name') {
+    const here = byId('crumb-here');
+    if (here) here.innerHTML = h ? nameOr(h.name, 'unnamed host') : nameOr(s.name, 'unnamed server');
+    if (h) {
+      const a = viewEl().querySelector('.crumb-actions a');
+      if (a) a.href = openURL(s, h);
+    } else {
+      const applyBtn = viewEl().querySelector('[data-action="apply-one"]');
+      if (applyBtn) {
+        const renamed = !!s._origName && s.name !== s._origName;
+        applyBtn.toggleAttribute('disabled', renamed);
+        applyBtn.dataset.tooltip = renamed
+          ? 'Renamed servers need a full Apply'
+          : 'Apply only this server to the running config';
+      }
+    }
   }
 }
 
@@ -528,7 +728,7 @@ function onChange(e) {
   if (!s) return;
   setField(s, h, el.dataset.f, el);
   markDirty();
-  renderServers();
+  renderView();
 }
 
 function onClick(e) {
@@ -537,7 +737,14 @@ function onClick(e) {
     return;
   }
   const btn = e.target.closest('[data-action]');
-  if (!btn) return;
+  if (!btn) {
+    // whole-row navigation, except on interactive children (toggles, links)
+    const row = e.target.closest('[data-nav]');
+    if (row && !e.target.closest('a, button, label, input, select')) {
+      goTo(row.dataset.nav);
+    }
+    return;
+  }
   const { s, si, hi } = resolveTarget(btn);
 
   switch (btn.dataset.action) {
@@ -551,22 +758,13 @@ function onClick(e) {
     case 'json-use': useJSON(); break;
     case 'json-copy': copyJSON(btn); break;
     case 'dlg-close': btn.closest('.ui-dialog-backdrop').classList.remove('open'); break;
-    case 'collapse':
-      s._collapsed = !s._collapsed;
-      btn.closest('.server').classList.toggle('collapsed', s._collapsed);
-      btn.closest('.server').querySelector('.server-body').hidden = s._collapsed;
-      break;
     case 'apply-one': applyOne(btn, si); break;
-    case 'add-host':
-      s.hosts.push(newHost(s.type));
-      markDirty();
-      renderServers();
-      serversEl().querySelector(`[data-si="${si}"] [data-hi="${s.hosts.length - 1}"] input[data-f="name"]`).focus();
-      break;
+    case 'add-host': addHost(s, si); break;
     case 'del-host':
       s.hosts.splice(hi, 1);
       markDirty();
-      renderServers();
+      if (route.view === 'host') goTo(serverHash(si), true);
+      else renderView();
       break;
     case 'del-server': {
       pendingDeleteSi = si;
@@ -582,7 +780,8 @@ function onClick(e) {
         servers.splice(pendingDeleteSi, 1);
         pendingDeleteSi = -1;
         markDirty();
-        renderServers();
+        if (route.view === 'servers') renderView();
+        else goTo('#/', true);
       }
       closeDialog('dlg-confirm');
       break;
@@ -595,7 +794,20 @@ function onKey(e) {
     saveAll(byId('btn-save'));
     return;
   }
-  if (e.key === 'Escape') closeAllDialogs();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-nav]')) {
+    e.preventDefault();
+    goTo(e.target.dataset.nav);
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (document.querySelector('.ui-dialog-backdrop.open')) {
+      closeAllDialogs();
+    } else if (route.view === 'host') {
+      goTo(serverHash(route.si));
+    } else if (route.view === 'server') {
+      goTo('#/');
+    }
+  }
 }
 
 // ---- init ----------------------------------
@@ -603,8 +815,9 @@ function onKey(e) {
 function init() {
   document.addEventListener('click', onClick);
   document.addEventListener('keydown', onKey);
-  serversEl().addEventListener('input', onInput);
-  serversEl().addEventListener('change', onChange);
+  viewEl().addEventListener('input', onInput);
+  viewEl().addEventListener('change', onChange);
+  window.addEventListener('hashchange', syncRoute);
   byId('login-token').addEventListener('keydown', e => {
     if (e.key === 'Enter') login(byId('login-btn'));
   });
@@ -616,12 +829,7 @@ function init() {
   });
   applyThemeIcon();
 
-  // accept a token passed in the URL hash, then remove it from the URL
-  const m = location.hash.match(/access_token=([^&]+)/);
-  if (m) {
-    sessionStorage.setItem('access_token', decodeURIComponent(m[1]));
-    history.replaceState(null, '', location.pathname + location.search);
-  }
+  adoptTokenFromHash();
 
   if (token()) {
     loadServers().then(showApp).catch(err => {
