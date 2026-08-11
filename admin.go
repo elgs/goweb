@@ -70,13 +70,13 @@ func LoadServerFromRequestBody(r *http.Request) (*Server, error) {
 	return &_server, nil
 }
 
-func StartAdmin() error {
-	listen := fmt.Sprintf("%v:%v", host, port)
-
+// adminMux builds the admin handler: the embedded web UI on / and the config
+// API under /api.
+func adminMux() (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 	sub, err := fs.Sub(gowebadmin, "gowebadmin")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	mux.Handle("/", http.FileServer(http.FS(sub)))
@@ -234,6 +234,17 @@ func StartAdmin() error {
 			fmt.Fprint(w, "{}")
 		}
 	})
+
+	return mux, nil
+}
+
+func StartAdmin() error {
+	listen := fmt.Sprintf("%v:%v", host, port)
+
+	mux, err := adminMux()
+	if err != nil {
+		return err
+	}
 
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
