@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const version = "14"
+const version = "15"
 
 const (
 	shutdownTimeout   = 10 * time.Second
