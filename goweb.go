@@ -292,7 +292,7 @@ func (this *Server) handle(w http.ResponseWriter, r *http.Request) {
 // buildProxies parses the space separated forward URLs and builds one reverse
 // proxy per upstream. The proxies stream request and response bodies, strip
 // hop-by-hop headers, set X-Real-IP and X-Forwarded-For/Host/Proto from the
-// connection, and support upgrades such as websockets.
+// connection and request metadata, and support upgrades such as websockets.
 func (host *Host) buildProxies() error {
 	forwardURLs := strings.Fields(host.ForwardURLs)
 	if len(forwardURLs) == 0 {
