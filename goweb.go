@@ -310,9 +310,14 @@ func (host *Host) buildProxies() error {
 		proxies = append(proxies, &httputil.ReverseProxy{
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.SetURL(target)
-				// ReverseProxy strips Forwarded and X-Forwarded-* before
-				// Rewrite, but backends may also trust a caller's X-Real-IP.
-				r.Out.Header.Del("X-Real-IP")
+				// ReverseProxy strips Forwarded, X-Forwarded-For,
+				// X-Forwarded-Host, and X-Forwarded-Proto before Rewrite.
+				// Derive X-Real-IP from the socket address as SetXForwarded does.
+				if ip, _, err := net.SplitHostPort(r.In.RemoteAddr); err == nil {
+					r.Out.Header.Set("X-Real-IP", ip)
+				} else {
+					r.Out.Header.Del("X-Real-IP")
+				}
 				r.SetXForwarded()
 				r.Out.Host = r.In.Host
 			},

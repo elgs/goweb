@@ -956,6 +956,7 @@ func TestReverseProxyDiscardsClientIPHeaders(t *testing.T) {
 	}{
 		{"IPv4", "198.51.100.10:54321", "198.51.100.10"},
 		{"IPv6", "[2001:db8::10]:54321", "2001:db8::10"},
+		{"invalid address", "not-an-address", ""},
 	}
 	inputs := []struct {
 		name    string
@@ -1000,17 +1001,21 @@ func TestReverseProxyDiscardsClientIPHeaders(t *testing.T) {
 					if err := json.Unmarshal(rec.Body.Bytes(), &headers); err != nil {
 						t.Fatalf("decoding upstream headers: %v", err)
 					}
-					for _, name := range []string{"X-Real-IP", "Forwarded"} {
-						if values := headers.Values(name); len(values) != 0 {
-							t.Errorf("upstream received %s = %q, want no header", name, values)
-						}
+					if values := headers.Values("Forwarded"); len(values) != 0 {
+						t.Errorf("upstream received Forwarded = %q, want no header", values)
 					}
 					for name, want := range map[string]string{
+						"X-Real-IP":         client.ip,
 						"X-Forwarded-For":   client.ip,
 						"X-Forwarded-Host":  "proxy.example.com",
 						"X-Forwarded-Proto": scheme,
 					} {
-						if values := headers.Values(name); len(values) != 1 || values[0] != want {
+						values := headers.Values(name)
+						if want == "" {
+							if len(values) != 0 {
+								t.Errorf("upstream received %s = %q, want no header for an invalid address", name, values)
+							}
+						} else if len(values) != 1 || values[0] != want {
 							t.Errorf("upstream received %s = %q, want exactly %q", name, values, want)
 						}
 					}

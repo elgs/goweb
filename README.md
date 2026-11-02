@@ -254,7 +254,9 @@ $ rm -rf $HOME/go/bin/goweb
 
 If a host's certificate files cannot be loaded, the error is logged and recorded in the host's `status`, and the server starts without that certificate — the remaining hosts keep serving. An `https` server with no loadable certificate at all fails to start.
 
-For `reverse_proxy` hosts, goweb sets `X-Forwarded-For` from the connecting client's IP address and sets `X-Forwarded-Host` and `X-Forwarded-Proto` from the incoming request's host and transport. Caller-supplied values of those headers are replaced, and `Forwarded` and `X-Real-IP` are removed. Backends should use `X-Forwarded-For` for the client IP only when the request comes through a trusted goweb proxy.
+For `reverse_proxy` hosts, goweb sets `X-Real-IP` and `X-Forwarded-For` from the connecting client's IP address and sets `X-Forwarded-Host` and `X-Forwarded-Proto` from the incoming request's host and transport. Caller-supplied values of those headers are replaced, and `Forwarded` is removed. If the connection address cannot be parsed, `X-Real-IP` and `X-Forwarded-For` are omitted. Backends should trust these headers only when the request comes through a trusted goweb proxy.
+
+These IP headers identify the peer connecting directly to goweb; when another proxy sits in front, they identify that proxy. This header handling applies only to `reverse_proxy` hosts. A `tcp` server forwards bytes unchanged.
 
 ## Logging
 
