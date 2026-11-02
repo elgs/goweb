@@ -939,6 +939,87 @@ func TestReverseProxyForwardsRequest(t *testing.T) {
 	}
 }
 
+// Backends may prefer X-Real-IP over X-Forwarded-For for audit logs and rate
+// limits. Neither caller-supplied header may override the connection address.
+func TestReverseProxyDiscardsClientIPHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(r.Header)
+	}))
+	defer upstream.Close()
+	host := &Host{Name: "proxy.example.com", Type: "reverse_proxy", ForwardURLs: upstream.URL}
+	if err := host.buildProxies(); err != nil {
+		t.Fatalf("buildProxies() = %v, want nil", err)
+	}
+
+	clients := []struct {
+		name, addr, ip string
+	}{
+		{"IPv4", "198.51.100.10:54321", "198.51.100.10"},
+		{"IPv6", "[2001:db8::10]:54321", "2001:db8::10"},
+	}
+	inputs := []struct {
+		name    string
+		headers http.Header
+	}{
+		{name: "no forwarding headers"},
+		{
+			name: "forged forwarding headers",
+			headers: http.Header{
+				"X-Real-Ip":         {"127.0.0.1"},
+				"X-Forwarded-For":   {"10.0.0.1, 192.168.0.1"},
+				"X-Forwarded-Host":  {"forged.example.com"},
+				"X-Forwarded-Proto": {"forged"},
+				"Forwarded":         {"for=127.0.0.1;host=forged.example.com;proto=forged"},
+			},
+		},
+		{
+			name: "duplicate forwarding headers",
+			headers: http.Header{
+				"X-Real-Ip":       {"127.0.0.1", "::1"},
+				"X-Forwarded-For": {"10.0.0.1", "192.168.0.1"},
+			},
+		},
+	}
+	for _, client := range clients {
+		for _, scheme := range []string{"http", "https"} {
+			for _, input := range inputs {
+				t.Run(client.name+"/"+scheme+"/"+input.name, func(t *testing.T) {
+					req := httptest.NewRequest(http.MethodGet, scheme+"://proxy.example.com/", nil)
+					req.RemoteAddr = client.addr
+					for name, values := range input.headers {
+						for _, value := range values {
+							req.Header.Add(name, value)
+						}
+					}
+					rec := httptest.NewRecorder()
+					host.forwardProxies[0].ServeHTTP(rec, req)
+					if rec.Code != http.StatusOK {
+						t.Fatalf("status = %v, want %v", rec.Code, http.StatusOK)
+					}
+					var headers http.Header
+					if err := json.Unmarshal(rec.Body.Bytes(), &headers); err != nil {
+						t.Fatalf("decoding upstream headers: %v", err)
+					}
+					for _, name := range []string{"X-Real-IP", "Forwarded"} {
+						if values := headers.Values(name); len(values) != 0 {
+							t.Errorf("upstream received %s = %q, want no header", name, values)
+						}
+					}
+					for name, want := range map[string]string{
+						"X-Forwarded-For":   client.ip,
+						"X-Forwarded-Host":  "proxy.example.com",
+						"X-Forwarded-Proto": scheme,
+					} {
+						if values := headers.Values(name); len(values) != 1 || values[0] != want {
+							t.Errorf("upstream received %s = %q, want exactly %q", name, values, want)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestReverseProxyBadGateway(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	deadURL := dead.URL
