@@ -941,7 +941,7 @@ func TestReverseProxyForwardsRequest(t *testing.T) {
 
 // Backends may prefer X-Real-IP over X-Forwarded-For for audit logs and rate
 // limits. Neither caller-supplied header may override the connection address.
-func TestReverseProxyDiscardsClientIPHeaders(t *testing.T) {
+func TestReverseProxyReplacesClientIPHeaders(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(r.Header)
 	}))
