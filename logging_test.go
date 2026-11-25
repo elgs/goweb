@@ -19,14 +19,15 @@ import (
 	"time"
 )
 
-// restoreLoggers puts the loggers TestMain set up back after a test has called
-// setupLogging.
+// restoreLoggers restores the logging configuration after a test.
 func restoreLoggers(t *testing.T) {
 	t.Helper()
 	oldDefault, oldAccess := slog.Default(), accessLog
+	oldParams := redactedQueryParams
 	t.Cleanup(func() {
 		slog.SetDefault(oldDefault)
 		accessLog = oldAccess
+		redactedQueryParams = oldParams
 	})
 }
 
@@ -250,23 +251,44 @@ func TestLogAccessRecord(t *testing.T) {
 	}
 }
 
-func TestLogAccessMasksCheckoutReferences(t *testing.T) {
+func setLogQueryParams(t *testing.T, names string) {
+	t.Helper()
+	restoreLoggers(t)
+	setEnv(t, "GOWEB_LOG_REDACT_QUERY_PARAMS", names)
+	setupLogging()
+}
+
+func TestLogAccessMasksConfiguredQueryParams(t *testing.T) {
+	setLogQueryParams(t, " private_id, ,GRANT,private_id ")
 	logs := captureAccessLog(t)
-	const uri = "/thanks?session_id=first&session_id=second&item=one"
-	const referer = "https://shop.example/thanks?square_order=third&%54oken=fourth#private-fragment"
+	const uri = "/view?private_id=first&private_id=second&item=one"
+	const referer = "https://ref.example/view?grant=third&%47rant=fourth#private-fragment"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI != uri {
+			t.Errorf("upstream received URI %q, want %q", r.RequestURI, uri)
+		}
+		if got := r.Referer(); got != referer {
+			t.Errorf("upstream received referrer %q, want %q", got, referer)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	host := &Host{ForwardURLs: upstream.URL}
+	if err := host.buildProxies(); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, uri, nil)
 	req.Header.Set("Referer", referer)
-	handler := (&Server{}).logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.RequestURI != uri || r.Referer() != referer {
-			t.Error("handler did not receive the original checkout URL and referrer")
-		}
-	}))
-	handler.ServeHTTP(httptest.NewRecorder(), req)
+	rec := httptest.NewRecorder()
+	(&Server{}).logAccess(host.forwardProxies[0]).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("proxy returned %d, want %d", rec.Code, http.StatusNoContent)
+	}
 	record := parseRecord(t, logs.records()[0])
-	if got := record["uri"]; got != "/thanks?session_id=REDACTED&session_id=REDACTED&item=one" {
+	if got := record["uri"]; got != "/view?private_id=REDACTED&private_id=REDACTED&item=one" {
 		t.Errorf("logged URI = %v", got)
 	}
-	if got := record["referer"]; got != "https://shop.example/thanks?square_order=REDACTED&%54oken=REDACTED" {
+	if got := record["referer"]; got != "https://ref.example/view?grant=REDACTED&%47rant=REDACTED" {
 		t.Errorf("logged referrer = %v", got)
 	}
 }
@@ -276,6 +298,7 @@ func TestLogAccessMasksCheckoutReferences(t *testing.T) {
 // encoding it arrived in. Otherwise one malformed pair or a "#" would let a
 // client keep the rest of its request out of the log.
 func TestLogAccessKeepsTheRestOfTheRequestLine(t *testing.T) {
+	setLogQueryParams(t, "private_id")
 	logs := captureAccessLog(t)
 	handler := (&Server{}).logAccess(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	uris := []string{
@@ -297,24 +320,35 @@ func TestLogAccessKeepsTheRestOfTheRequestLine(t *testing.T) {
 	}
 }
 
+func TestEmptyLogQueryParamsPreservesQuery(t *testing.T) {
+	const uri = "/view?private_id=value&bad%zz=two%20words"
+	for _, names := range []string{"", " , , "} {
+		setLogQueryParams(t, names)
+		if got := requestURIForLog(uri); got != uri {
+			t.Errorf("with query parameter list %q, logged %q, want %q", names, got, uri)
+		}
+	}
+}
+
 func TestRequestURIForLog(t *testing.T) {
+	setLogQueryParams(t, "private_id,grant")
 	for _, tc := range []struct{ in, want string }{
 		{"/plain", "/plain"},
 		{"/?b=two%20words&a=1", "/?b=two%20words&a=1"},
-		// only the credential changes
-		{"/?b=2&Session_ID=private&a=%2F%20x", "/?b=2&Session_ID=REDACTED&a=%2F%20x"},
-		{"/?token", "/?token=REDACTED"},
-		{"/?&&token=private&", "/?&&token=REDACTED&"},
+		{"/?b=2&Private_ID=private&a=%2F%20x", "/?b=2&Private_ID=REDACTED&a=%2F%20x"},
+		{"/?grant", "/?grant=REDACTED"},
+		{"/?&&grant=private&", "/?&&grant=REDACTED&"},
+		{"/?grants=kept&grant=private", "/?grants=kept&grant=REDACTED"},
 		// a malformed pair does not hide its neighbours
-		{"/?bad=%zz&token=private", "/?bad=%zz&token=REDACTED"},
+		{"/?bad=%zz&grant=private", "/?bad=%zz&grant=REDACTED"},
 		{"/?q=kept&%zz=private", "/?q=kept&REDACTED"},
 		// servers that split on ";" would see these keys
-		{"/?token=private;page=1", "/?token=REDACTED"},
-		{"/?page=1;token=private&q=kept", "/?page=1;token=REDACTED&q=kept"},
+		{"/?grant=private;page=1", "/?grant=REDACTED"},
+		{"/?page=1;grant=private&q=kept", "/?page=1;grant=REDACTED&q=kept"},
 		{"/?page=1;%zz=private;q=dropped", "/?page=1;REDACTED"},
 		// "#" is part of a request line, not the start of a fragment
 		{"/?q=kept#&id=kept", "/?q=kept#&id=kept"},
-		{"/path#?token=private", "/path#?token=REDACTED"},
+		{"/path#?grant=private", "/path#?grant=REDACTED"},
 	} {
 		if got := requestURIForLog(tc.in); got != tc.want {
 			t.Errorf("requestURIForLog(%q) = %q, want %q", tc.in, got, tc.want)
@@ -323,9 +357,10 @@ func TestRequestURIForLog(t *testing.T) {
 }
 
 func TestURLForLog(t *testing.T) {
+	setLogQueryParams(t, "grant")
 	for _, tc := range []struct{ in, want string }{
-		{"https://shop.example/#token=private", "https://shop.example/"},
-		{"https://shop.example/?a=1&token=private#fragment", "https://shop.example/?a=1&token=REDACTED"},
+		{"https://ref.example/#grant=private", "https://ref.example/"},
+		{"https://ref.example/?a=1&grant=private#fragment", "https://ref.example/?a=1&grant=REDACTED"},
 	} {
 		if got := urlForLog(tc.in); got != tc.want {
 			t.Errorf("urlForLog(%q) = %q, want %q", tc.in, got, tc.want)
@@ -333,23 +368,23 @@ func TestURLForLog(t *testing.T) {
 	}
 }
 
-func TestProxyErrorMasksCheckoutReferences(t *testing.T) {
-	restoreLoggers(t)
+func TestProxyErrorMasksConfiguredQueryParams(t *testing.T) {
+	setLogQueryParams(t, "grant")
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	host := &Host{Name: "shop.example", ForwardURLs: "http://upstream.example/?token=upstream-secret"}
+	host := &Host{Name: "proxy.example", ForwardURLs: "http://upstream.example/?grant=upstream-secret"}
 	if err := host.buildProxies(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/thanks?square_order=request-secret#&item=one", nil)
-	err := &url.Error{Op: "Get", URL: "http://upstream.example/?session_id=error-secret", Err: io.EOF}
+	req := httptest.NewRequest(http.MethodGet, "/view?grant=request-secret#&item=one", nil)
+	err := &url.Error{Op: "Get", URL: "http://upstream.example/?grant=error-secret", Err: io.EOF}
 	host.forwardProxies[0].ErrorHandler(httptest.NewRecorder(), req, err)
 	record := parseRecord(t, buf.String())
-	if record["uri"] != "/thanks?square_order=REDACTED&item=one" || record["upstream"] != "http://upstream.example/?token=REDACTED" {
+	if record["uri"] != "/view?grant=REDACTED&item=one" || record["upstream"] != "http://upstream.example/?grant=REDACTED" {
 		t.Errorf("proxy URL fields = %v / %v", record["uri"], record["upstream"])
 	}
 	if strings.Contains(buf.String(), "-secret") || !strings.Contains(buf.String(), "EOF") {
-		t.Error("proxy diagnostic should retain the cause and mask each checkout reference")
+		t.Error("proxy diagnostic should retain the cause and mask each configured value")
 	}
 }
 

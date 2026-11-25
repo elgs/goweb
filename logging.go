@@ -18,11 +18,20 @@ import (
 // collected or filtered separately.
 var accessLog *slog.Logger
 
-// setupLogging configures both loggers from GOWEB_LOG_LEVEL (debug, info,
-// warn, error) and GOWEB_LOG_FORMAT (text, json).
+// redactedQueryParams is set at startup and shared by both loggers.
+var redactedQueryParams map[string]bool
+
+// setupLogging configures the loggers and URL redaction before serving requests.
 func setupLogging() {
 	levelText := getEnv("GOWEB_LOG_LEVEL", "info")
 	format := getEnv("GOWEB_LOG_FORMAT", "text")
+	redactedQueryParams = make(map[string]bool)
+	for raw := range strings.SplitSeq(os.Getenv("GOWEB_LOG_REDACT_QUERY_PARAMS"), ",") {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name != "" {
+			redactedQueryParams[name] = true
+		}
+	}
 
 	var level slog.Level
 	levelErr := level.UnmarshalText([]byte(levelText))
@@ -99,14 +108,12 @@ func (this *responseRecorder) Unwrap() http.ResponseWriter {
 	return this.ResponseWriter
 }
 
-// requestURIForLog masks credentials in the query of a request line. Checkout
-// providers put bearer credentials in return URLs, and those URLs can also
-// reach the access log as the Referer of a later request.
-//
-// Masking works pair by pair, so the rest of the query is logged as the client
-// sent it. A "#" is not a fragment in a request line: the server keeps it in
-// the path or query and the proxy forwards it, so it is logged too.
+// requestURIForLog masks configured query parameters and keeps the original
+// encoding of the other pairs. A literal "#" is part of the request line.
 func requestURIForLog(raw string) string {
+	if len(redactedQueryParams) == 0 {
+		return raw
+	}
 	q := strings.IndexByte(raw, '?')
 	if q < 0 {
 		return raw
@@ -140,9 +147,8 @@ func urlForLog(raw string) string {
 	return requestURIForLog(raw)
 }
 
-// maskPair looks for a credential in one "&"-separated pair. When it finds
-// one it returns how much of the pair to keep and the mask to write in place
-// of the rest; otherwise the mask is empty.
+// maskPair looks for a configured name in one "&"-separated pair. When it
+// finds one it returns how much of the pair to keep and the replacement.
 //
 // Go rejects a pair that holds a ";", but other servers split on it, so each
 // piece is checked. Whatever follows a masked piece goes with it, because a
@@ -156,8 +162,7 @@ func maskPair(pair string) (keep int, mask string) {
 		if err != nil {
 			return start, "REDACTED"
 		}
-		switch strings.ToLower(name) {
-		case "session_id", "square_order", "token":
+		if redactedQueryParams[strings.ToLower(name)] {
 			return start + len(key), "=REDACTED"
 		}
 		if !more {
