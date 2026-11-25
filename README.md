@@ -304,6 +304,8 @@ An http/https record carries the matched server and host, client IP, method, URI
 time=2026-07-16T11:39:13.715-07:00 level=INFO msg=access server=http-80 host=example.com client=203.0.113.7 method=GET uri=/hello.txt proto=HTTP/1.1 status=200 bytes=13 duration_ms=1.832 referer="" user_agent=curl/8.7.1
 ```
 
+Logged request URLs, referrers and proxy-error URLs mask the values of `session_id`, `square_order` and `token`. The logs omit fragments and hide the whole query if it cannot be parsed.
+
 A tcp record carries the chosen upstream, duration and bytes in both directions:
 
 ```

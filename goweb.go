@@ -331,11 +331,17 @@ func (host *Host) buildProxies() error {
 					// the client went away mid-request, not an upstream failure
 					level = slog.LevelDebug
 				}
+				var requestErr *url.Error
+				if errors.As(err, &requestErr) {
+					safe := *requestErr
+					safe.URL = urlForLog(requestErr.URL)
+					err = &safe
+				}
 				slog.Log(r.Context(), level, "Proxy error",
 					"host", host.Name,
-					"upstream", target.String(),
+					"upstream", urlForLog(target.String()),
 					"method", r.Method,
-					"uri", r.RequestURI,
+					"uri", urlForLog(r.RequestURI),
 					"client", clientIP(r.RemoteAddr),
 					"err", err)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")

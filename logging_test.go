@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,6 +247,61 @@ func TestLogAccessRecord(t *testing.T) {
 	}
 	if _, ok := record["duration_ms"].(float64); !ok {
 		t.Errorf("access record duration_ms = %v, want a number", record["duration_ms"])
+	}
+}
+
+func TestLogAccessMasksCheckoutReferences(t *testing.T) {
+	logs := captureAccessLog(t)
+	const uri = "/thanks?session_id=first&session_id=second&item=one"
+	const referer = "https://shop.example/thanks?square_order=third&%54oken=fourth#private-fragment"
+	req := httptest.NewRequest(http.MethodGet, uri, nil)
+	req.Header.Set("Referer", referer)
+	handler := (&Server{}).logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI != uri || r.Referer() != referer {
+			t.Error("handler did not receive the original checkout URL and referrer")
+		}
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	record := parseRecord(t, logs.records()[0])
+	if got := record["uri"]; got != "/thanks?item=one&session_id=REDACTED&session_id=REDACTED" {
+		t.Errorf("logged URI = %v", got)
+	}
+	if got := record["referer"]; got != "https://shop.example/thanks?Token=REDACTED&square_order=REDACTED" {
+		t.Errorf("logged referrer = %v", got)
+	}
+}
+
+func TestURLForLog(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"/plain", "/plain"},
+		{"/?b=two%20words&a=1", "/?b=two%20words&a=1"},
+		{"/?bad=%zz&token=private", "/?REDACTED"},
+		{"/?token=private;page=1", "/?REDACTED"},
+		{"https://shop.example/#token=private", "https://shop.example/"},
+	} {
+		if got := urlForLog(tc.in); got != tc.want {
+			t.Errorf("urlForLog(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestProxyErrorMasksCheckoutReferences(t *testing.T) {
+	restoreLoggers(t)
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	host := &Host{Name: "shop.example", ForwardURLs: "http://upstream.example/?token=upstream-secret"}
+	if err := host.buildProxies(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/thanks?square_order=request-secret", nil)
+	err := &url.Error{Op: "Get", URL: "http://upstream.example/?session_id=error-secret", Err: io.EOF}
+	host.forwardProxies[0].ErrorHandler(httptest.NewRecorder(), req, err)
+	record := parseRecord(t, buf.String())
+	if record["uri"] != "/thanks?square_order=REDACTED" || record["upstream"] != "http://upstream.example/?token=REDACTED" {
+		t.Errorf("proxy URL fields = %v / %v", record["uri"], record["upstream"])
+	}
+	if strings.Contains(buf.String(), "-secret") || !strings.Contains(buf.String(), "EOF") {
+		t.Error("proxy diagnostic should retain the cause and mask each checkout reference")
 	}
 }
 

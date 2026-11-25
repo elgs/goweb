@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -97,6 +99,34 @@ func (this *responseRecorder) Unwrap() http.ResponseWriter {
 	return this.ResponseWriter
 }
 
+// Checkout providers put bearer credentials in return URLs. Those URLs can
+// also reach the access log as the Referer of a later request.
+func urlForLog(raw string) string {
+	raw, _, _ = strings.Cut(raw, "#")
+	path, query, ok := strings.Cut(raw, "?")
+	if !ok || query == "" {
+		return raw
+	}
+	params, err := url.ParseQuery(query)
+	if err != nil {
+		return path + "?REDACTED"
+	}
+	changed := false
+	for key, values := range params {
+		switch strings.ToLower(key) {
+		case "session_id", "square_order", "token":
+			for i := range values {
+				values[i] = "REDACTED"
+			}
+			changed = true
+		}
+	}
+	if changed {
+		return path + "?" + params.Encode()
+	}
+	return raw
+}
+
 // logAccess wraps next and writes one access record per request.
 func (this *Server) logAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,12 +144,12 @@ func (this *Server) logAccess(next http.Handler) http.Handler {
 			"host", normalizeHost(r.Host),
 			"client", clientIP(r.RemoteAddr),
 			"method", r.Method,
-			"uri", r.RequestURI,
+			"uri", urlForLog(r.RequestURI),
 			"proto", r.Proto,
 			"status", status,
 			"bytes", rec.bytes,
 			"duration_ms", durationMs(start),
-			"referer", r.Referer(),
+			"referer", urlForLog(r.Referer()),
 			"user_agent", r.UserAgent(),
 		)
 	})
