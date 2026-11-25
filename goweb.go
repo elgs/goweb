@@ -341,7 +341,7 @@ func (host *Host) buildProxies() error {
 					"host", host.Name,
 					"upstream", urlForLog(target.String()),
 					"method", r.Method,
-					"uri", urlForLog(r.RequestURI),
+					"uri", requestURIForLog(r.RequestURI),
 					"client", clientIP(r.RemoteAddr),
 					"err", err)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")

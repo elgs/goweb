@@ -99,32 +99,72 @@ func (this *responseRecorder) Unwrap() http.ResponseWriter {
 	return this.ResponseWriter
 }
 
-// Checkout providers put bearer credentials in return URLs. Those URLs can
-// also reach the access log as the Referer of a later request.
-func urlForLog(raw string) string {
-	raw, _, _ = strings.Cut(raw, "#")
-	path, query, ok := strings.Cut(raw, "?")
-	if !ok || query == "" {
+// requestURIForLog masks credentials in the query of a request line. Checkout
+// providers put bearer credentials in return URLs, and those URLs can also
+// reach the access log as the Referer of a later request.
+//
+// Masking works pair by pair, so the rest of the query is logged as the client
+// sent it. A "#" is not a fragment in a request line: the server keeps it in
+// the path or query and the proxy forwards it, so it is logged too.
+func requestURIForLog(raw string) string {
+	q := strings.IndexByte(raw, '?')
+	if q < 0 {
 		return raw
 	}
-	params, err := url.ParseQuery(query)
-	if err != nil {
-		return path + "?REDACTED"
-	}
-	changed := false
-	for key, values := range params {
-		switch strings.ToLower(key) {
-		case "session_id", "square_order", "token":
-			for i := range values {
-				values[i] = "REDACTED"
-			}
-			changed = true
+	var b strings.Builder
+	copied := 0 // how much of raw is already in b
+	for start := q + 1; start <= len(raw); {
+		end := len(raw)
+		if i := strings.IndexByte(raw[start:], '&'); i >= 0 {
+			end = start + i
 		}
+		if keep, mask := maskPair(raw[start:end]); mask != "" {
+			b.WriteString(raw[copied : start+keep])
+			b.WriteString(mask)
+			copied = end
+		}
+		start = end + 1
 	}
-	if changed {
-		return path + "?" + params.Encode()
+	if copied == 0 {
+		// nothing was masked
+		return raw
 	}
-	return raw
+	b.WriteString(raw[copied:])
+	return b.String()
+}
+
+// urlForLog does the same for a URL that can carry a fragment, such as a
+// Referer or an upstream URL. The fragment is dropped.
+func urlForLog(raw string) string {
+	raw, _, _ = strings.Cut(raw, "#")
+	return requestURIForLog(raw)
+}
+
+// maskPair looks for a credential in one "&"-separated pair. When it finds
+// one it returns how much of the pair to keep and the mask to write in place
+// of the rest; otherwise the mask is empty.
+//
+// Go rejects a pair that holds a ";", but other servers split on it, so each
+// piece is checked. Whatever follows a masked piece goes with it, because a
+// server that does not split there reads all of it as the value. A piece
+// whose key cannot be decoded is masked whole.
+func maskPair(pair string) (keep int, mask string) {
+	for start := 0; ; {
+		piece, _, more := strings.Cut(pair[start:], ";")
+		key, _, _ := strings.Cut(piece, "=")
+		name, err := url.QueryUnescape(key)
+		if err != nil {
+			return start, "REDACTED"
+		}
+		switch strings.ToLower(name) {
+		case "session_id", "square_order", "token":
+			return start + len(key), "=REDACTED"
+		}
+		if !more {
+			return len(pair), ""
+		}
+		start += len(piece) + 1
+	}
 }
 
 // logAccess wraps next and writes one access record per request.
@@ -144,7 +184,7 @@ func (this *Server) logAccess(next http.Handler) http.Handler {
 			"host", normalizeHost(r.Host),
 			"client", clientIP(r.RemoteAddr),
 			"method", r.Method,
-			"uri", urlForLog(r.RequestURI),
+			"uri", requestURIForLog(r.RequestURI),
 			"proto", r.Proto,
 			"status", status,
 			"bytes", rec.bytes,

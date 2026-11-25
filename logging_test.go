@@ -263,21 +263,69 @@ func TestLogAccessMasksCheckoutReferences(t *testing.T) {
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 	record := parseRecord(t, logs.records()[0])
-	if got := record["uri"]; got != "/thanks?item=one&session_id=REDACTED&session_id=REDACTED" {
+	if got := record["uri"]; got != "/thanks?session_id=REDACTED&session_id=REDACTED&item=one" {
 		t.Errorf("logged URI = %v", got)
 	}
-	if got := record["referer"]; got != "https://shop.example/thanks?Token=REDACTED&square_order=REDACTED" {
+	if got := record["referer"]; got != "https://shop.example/thanks?square_order=REDACTED&%54oken=REDACTED" {
 		t.Errorf("logged referrer = %v", got)
+	}
+}
+
+// The access log is also the record of what a client sent, so a request line
+// keeps everything the masking has no reason to touch, in the order and
+// encoding it arrived in. Otherwise one malformed pair or a "#" would let a
+// client keep the rest of its request out of the log.
+func TestLogAccessKeepsTheRestOfTheRequestLine(t *testing.T) {
+	logs := captureAccessLog(t)
+	handler := (&Server{}).logAccess(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	uris := []string{
+		"/search?q=1%27%20OR%201=1--&bad=%zz",
+		"/search?q=ok#&id=1%20UNION%20SELECT",
+		"/hello.txt#anything",
+	}
+	for _, uri := range uris {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, uri, nil))
+	}
+	records := logs.records()
+	if len(records) != len(uris) {
+		t.Fatalf("wrote %v access records, want %v", len(records), len(uris))
+	}
+	for i, uri := range uris {
+		if got := parseRecord(t, records[i])["uri"]; got != uri {
+			t.Errorf("logged URI = %v, want %v", got, uri)
+		}
+	}
+}
+
+func TestRequestURIForLog(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"/plain", "/plain"},
+		{"/?b=two%20words&a=1", "/?b=two%20words&a=1"},
+		// only the credential changes
+		{"/?b=2&Session_ID=private&a=%2F%20x", "/?b=2&Session_ID=REDACTED&a=%2F%20x"},
+		{"/?token", "/?token=REDACTED"},
+		{"/?&&token=private&", "/?&&token=REDACTED&"},
+		// a malformed pair does not hide its neighbours
+		{"/?bad=%zz&token=private", "/?bad=%zz&token=REDACTED"},
+		{"/?q=kept&%zz=private", "/?q=kept&REDACTED"},
+		// servers that split on ";" would see these keys
+		{"/?token=private;page=1", "/?token=REDACTED"},
+		{"/?page=1;token=private&q=kept", "/?page=1;token=REDACTED&q=kept"},
+		{"/?page=1;%zz=private;q=dropped", "/?page=1;REDACTED"},
+		// "#" is part of a request line, not the start of a fragment
+		{"/?q=kept#&id=kept", "/?q=kept#&id=kept"},
+		{"/path#?token=private", "/path#?token=REDACTED"},
+	} {
+		if got := requestURIForLog(tc.in); got != tc.want {
+			t.Errorf("requestURIForLog(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 
 func TestURLForLog(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"/plain", "/plain"},
-		{"/?b=two%20words&a=1", "/?b=two%20words&a=1"},
-		{"/?bad=%zz&token=private", "/?REDACTED"},
-		{"/?token=private;page=1", "/?REDACTED"},
 		{"https://shop.example/#token=private", "https://shop.example/"},
+		{"https://shop.example/?a=1&token=private#fragment", "https://shop.example/?a=1&token=REDACTED"},
 	} {
 		if got := urlForLog(tc.in); got != tc.want {
 			t.Errorf("urlForLog(%q) = %q, want %q", tc.in, got, tc.want)
@@ -293,11 +341,11 @@ func TestProxyErrorMasksCheckoutReferences(t *testing.T) {
 	if err := host.buildProxies(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/thanks?square_order=request-secret", nil)
+	req := httptest.NewRequest(http.MethodGet, "/thanks?square_order=request-secret#&item=one", nil)
 	err := &url.Error{Op: "Get", URL: "http://upstream.example/?session_id=error-secret", Err: io.EOF}
 	host.forwardProxies[0].ErrorHandler(httptest.NewRecorder(), req, err)
 	record := parseRecord(t, buf.String())
-	if record["uri"] != "/thanks?square_order=REDACTED" || record["upstream"] != "http://upstream.example/?token=REDACTED" {
+	if record["uri"] != "/thanks?square_order=REDACTED&item=one" || record["upstream"] != "http://upstream.example/?token=REDACTED" {
 		t.Errorf("proxy URL fields = %v / %v", record["uri"], record["upstream"])
 	}
 	if strings.Contains(buf.String(), "-secret") || !strings.Contains(buf.String(), "EOF") {
